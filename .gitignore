@@ -1,0 +1,62 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Test / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / OS
+.vscode/settings.json
+.DS_Store
+Thumbs.db
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# Simulation generated outputs
+runs/**
+!runs/.gitignore
+
+results/**
+!results/.gitignore
+
+# Large generated arrays / meshes / visualization outputs
+*.npy
+*.npz
+*.vtk
+*.vtu
+*.vtp
+*.ply
+*.obj
+
+# STL policy:
+# Keep input STL files in data/stl/ only after deciding whether to use Git LFS.
+# Generated patterned STL files should go under results/ and remain ignored.
+results/**/*.stl
+
+# Logs
+*.log
