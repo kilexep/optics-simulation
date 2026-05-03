@@ -1,0 +1,50 @@
+﻿pattern:
+  primary_family: residual_updated_caustic_adaptive_quasi_random_gaussian_dimple
+
+  normalized_coordinates:
+    u_range: [0.0, 1.0]
+    v_range: [0.0, 1.0]
+    depth_symbol: eta
+    physical_depth_symbol: delta
+
+  gaussian_dimple_field:
+    formula: delta(u,v)=dmax*clip(sum(Ai*exp(-||r-ri||^2/(2*sigma_i^2))),0,1)
+
+  sampling:
+    type: weighted_poisson_disk
+    probability_source: Rrisk_norm
+    epsilon: 0.02
+    random_seed: 42
+
+  parameters:
+    dmax_mm:
+      range: [0.05, 0.50]
+      default: 0.25
+    sigma_norm:
+      range: [0.002, 0.030]
+      default: 0.008
+    rmin_norm:
+      range: [0.004, 0.050]
+      default: 0.015
+    coverage:
+      range: [0.20, 1.00]
+      default: 0.70
+    beta_lambda:
+      range: [0.0, 3.0]
+      default: 1.0
+    beta_depth:
+      range: [0.0, 3.0]
+      default: 1.0
+    beta_sigma:
+      range: [0.0, 2.0]
+      default: 0.5
+
+  residual_update:
+    enabled: true
+    alpha_baseline: 0.7
+
+  manufacturing_constraints:
+    max_depth_mm: 0.50
+    min_wall_thickness_mm: 0.20
+    min_pitch_norm: 0.004
+    max_depth_error_after_formula_fit: 0.10

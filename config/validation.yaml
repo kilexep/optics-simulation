@@ -1,0 +1,34 @@
+﻿validation:
+  comparison_groups:
+    G0: no_pattern_stl
+    G1: uniform_dimple
+    G2: regular_grid_or_groove
+    G3: fully_random_dimple
+    G4: uniform_quasi_random_dimple
+    G5: caustic_adaptive_quasi_random_dimple
+    G6: residual_updated_caustic_adaptive_pattern
+
+  holdout:
+    enabled: true
+    incident_angle_strategy: unseen_intermediate_angles
+    fill_levels: [0.25, 0.75]
+    target_distances_mm: [75.0, 150.0]
+    bottle_rotation_strategy: unseen_rotations
+
+  ablation_tests:
+    - uniform_quasi_random_vs_caustic_adaptive
+    - caustic_adaptive_vs_residual_updated
+    - risk_angle_only_vs_robust_all_angle_objective
+
+  formula_validation:
+    max_relative_C99_change: 0.05
+    max_relative_OFRI_change: 0.05
+
+  required_plots:
+    - OFRI_vs_angle
+    - C99_vs_angle
+    - before_after_irradiance_map
+    - contribution_map
+    - NDI_vs_BTDF_entropy
+    - BTDF_entropy_vs_C99
+    - temperature_map

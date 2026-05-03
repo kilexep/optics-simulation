@@ -1,0 +1,30 @@
+﻿optimization:
+  engine: optuna
+  direction: minimize
+
+  trials:
+    debug: 10
+    screening: 100
+    final: 500
+
+  objective:
+    name: robust_optical_fire_risk_index
+    weights:
+      mean_theta_risk: 0.35
+      mean_theta_all: 0.20
+      max_theta_all: 0.20
+      std_theta_all: 0.10
+      transparency_penalty: 0.10
+      manufacturing_penalty: 0.05
+
+  ofri_components:
+    C99_norm: 0.25
+    Eexceed_norm: 0.20
+    Ahot_norm: 0.10
+    Tmax_norm: 0.20
+    dTdt_norm: 0.15
+    BTDF_entropy_norm: -0.10
+
+  candidate_selection:
+    top_k_for_high_res_validation: 5
+    top_k_for_formula_export: 3

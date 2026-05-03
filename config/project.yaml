@@ -1,0 +1,14 @@
+﻿project:
+  name: optics-simulation
+  version: 0.1.0
+  description: STL-based PET bottle caustic simulation and pattern optimization
+  claim_scope: local_caustic_and_thermal_risk_metric_reduction
+  safety_note: do_not_model_or_optimize_ignition
+
+modes:
+  debug:
+    description: Fast smoke-test configuration
+  screening:
+    description: Coarse exploration and candidate filtering
+  final:
+    description: High-resolution validation configuration

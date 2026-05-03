@@ -1,0 +1,19 @@
+﻿materials:
+  air:
+    refractive_index: 1.0003
+
+  pet:
+    refractive_index: 1.57
+    absorption_enabled: false
+    note: Initial simplified value; refine through literature or calibration.
+
+  water:
+    refractive_index: 1.333
+    fill_levels: [0.0, 0.5, 1.0]
+
+  absorber_plate:
+    absorption_coefficient: 0.95
+    emissivity: 0.9
+    density_kg_m3: 2700
+    heat_capacity_j_kg_k: 900
+    thickness_mm: 1.0

@@ -1,0 +1,25 @@
+﻿thermal:
+  model: simplified_absorber_plate
+  enabled_for:
+    - high_res_validation
+    - final_candidates
+
+  ambient_temperature_c: 25.0
+  duration_s: 300.0
+  time_step_s: 1.0
+
+  heat_transfer:
+    convection_coefficient_w_m2_k: 8.0
+    radiation_enabled: false
+
+  metrics:
+    - Tmax
+    - dTdt_initial
+    - Ahot_T
+
+  initial_slope_window_s: [0.0, 60.0]
+  temperature_thresholds_c: [40.0, 60.0, 80.0]
+
+  safety_scope:
+    ignition_modeling: false
+    use_relative_temperature_risk_only: true

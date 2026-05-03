@@ -1,0 +1,18 @@
+﻿tracking:
+  run_root: runs
+  result_root: results
+
+  save:
+    config_snapshot: true
+    metrics_csv: true
+    figures: true
+    mesh_artifacts: true
+    pattern_descriptor: true
+    ray_history: true
+
+  artifact_policy:
+    commit_large_outputs_to_git: false
+    store_generated_meshes_under_results: true
+
+  run_naming:
+    format: "{timestamp}_{mode}_{short_hash}"

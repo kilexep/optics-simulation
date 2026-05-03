@@ -1,0 +1,27 @@
+﻿optics:
+  ray_model: geometric_ray_tracing
+  boundary_model:
+    refraction: snell
+    fresnel_reflection: optional_later
+    max_interactions: 12
+
+  source:
+    type: parallel_solar_approximation
+    spectrum_mode: single_weighted_white_initial
+    incident_irradiance_w_m2: 1000.0
+
+  ray_counts:
+    debug: 10000
+    screening: 100000
+    final: 1000000
+
+  detector:
+    metric_smoothing: true
+    top_percent_for_c99: 1.0
+
+  hotspot_thresholds:
+    relative_irradiance: [2.0, 5.0, 10.0]
+
+  convergence:
+    ray_count_relative_tolerance: 0.05
+    detector_resolution_relative_tolerance: 0.05
