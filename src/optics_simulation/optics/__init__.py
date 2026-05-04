@@ -1,4 +1,10 @@
-"""Optics package: ray sources, intersection, Snell/Fresnel, propagation, pipeline, multi-step."""
+"""Optics package: ray sources, intersection, Snell/Fresnel, propagation, pipeline, multi-step, detector."""
+from optics_simulation.optics.detector import (
+    DetectorHitResult,
+    DetectorPlane,
+    create_detector_plane,
+    intersect_detector_plane,
+)
 from optics_simulation.optics.intersection import (
     IntersectionResult,
     intersect_rays,
@@ -29,6 +35,8 @@ from optics_simulation.optics.refraction import (
 )
 
 __all__ = [
+    "DetectorHitResult",
+    "DetectorPlane",
     "IntersectionResult",
     "MultiStepTraceResult",
     "OpticsError",
@@ -36,7 +44,9 @@ __all__ = [
     "RayBundle",
     "RefractionResult",
     "SingleInterfacePipelineResult",
+    "create_detector_plane",
     "fresnel_unpolarized",
+    "intersect_detector_plane",
     "intersect_rays",
     "make_ray_bundle",
     "normalize_vector",
