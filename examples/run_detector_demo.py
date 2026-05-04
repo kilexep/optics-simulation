@@ -1,9 +1,14 @@
 """Detector accumulation demo.
 
-End-to-end smoke run of the optical pipeline foundations built so far:
-synthetic box mesh -> parallel ray grid -> multi-step trace
--> detector plane intersection -> detector grid accumulation
--> console summary + invariant check.
+Synthetic mesh smoke check of the optical pipeline foundations built
+so far: synthetic box mesh -> parallel ray grid -> multi-step trace
+-> detector plane intersection -> detector grid accumulation ->
+optical metrics on a relative irradiance surrogate -> console
+summary + invariant check.
+
+This is **not** a reproduction of PET-bottle caustics. The detector
+weight map is a unit-less relative irradiance surrogate computed from
+counts of synthetic rays through a synthetic slab.
 
 Run from the repository root:
 
@@ -22,6 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 import numpy as np
 import trimesh
 
+from optics_simulation.metrics import compute_optical_metrics
 from optics_simulation.optics import (
     accumulate_detector_hits,
     create_detector_grid,
@@ -34,9 +40,12 @@ from optics_simulation.optics import (
 
 IOR_AIR = 1.00028
 IOR_PET = 1.575
+HOTSPOT_THRESHOLDS = (2.0, 5.0, 10.0)
+TOP_PERCENT_FOR_C99 = 1.0
+INCIDENT_REFERENCE = 1.0  # unit-less relative irradiance surrogate
 
 
-def _print_summary(rays, trace, accum) -> None:
+def _print_summary(rays, trace, accum, metrics) -> None:
     print("Detector accumulation demo")
     print(f"Initial rays: {rays.ray_count}")
     print(f"Termination: {trace.termination_reason}")
@@ -50,9 +59,14 @@ def _print_summary(rays, trace, accum) -> None:
     print(f"Detector hits: {accum.total_hits}")
     print(f"Count map sum: {int(accum.count_map.sum())}")
     print(f"Weight map sum: {float(accum.weight_map.sum()):.1f}")
+    print(f"Peak value: {metrics.peak_value:.1f}")
+    print(f"Cmax: {metrics.cmax:.4f}")
+    print(f"C99: {metrics.c99:.4f}")
+    print(f"Eexceed@2.0: {metrics.eexceed[2.0]:.1f}")
+    print(f"Ahot@2.0: {metrics.ahot[2.0]}")
 
 
-def _check_invariants(rays, trace, hits, accum) -> bool:
+def _check_invariants(rays, trace, hits, accum, metrics) -> bool:
     checks: list[bool] = []
 
     checks.append(rays.ray_count == trace.initial_rays.ray_count)
@@ -85,6 +99,13 @@ def _check_invariants(rays, trace, hits, accum) -> bool:
         bool(np.isclose(accum.weight_map.sum(), float(accum.total_weight)))
     )
 
+    checks.append(metrics.pixel_count == accum.weight_map.size)
+    checks.append(
+        bool(np.isclose(metrics.total_value, float(accum.weight_map.sum())))
+    )
+    checks.append(metrics.peak_value >= 0.0)
+    checks.append(metrics.c99 >= 0.0)
+
     return all(checks)
 
 
@@ -114,8 +135,15 @@ def main() -> int:
     grid = create_detector_grid(width=10.0, height=10.0, resolution=(20, 20))
     accum = accumulate_detector_hits(hits, grid)
 
-    _print_summary(rays, trace, accum)
-    ok = _check_invariants(rays, trace, hits, accum)
+    metrics = compute_optical_metrics(
+        accum.weight_map,
+        incident_reference=INCIDENT_REFERENCE,
+        thresholds=HOTSPOT_THRESHOLDS,
+        top_percent=TOP_PERCENT_FOR_C99,
+    )
+
+    _print_summary(rays, trace, accum, metrics)
+    ok = _check_invariants(rays, trace, hits, accum, metrics)
     print(f"Invariants: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 

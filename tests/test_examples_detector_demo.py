@@ -34,4 +34,9 @@ def test_demo_script_runs_and_invariants_pass() -> None:
     assert "Detector accumulation demo" in result.stdout
     assert "Initial rays: 121" in result.stdout
     assert "Termination: completed_interfaces" in result.stdout
+    assert "Peak value:" in result.stdout
+    assert "Cmax:" in result.stdout
+    assert "C99:" in result.stdout
+    assert "Eexceed@2.0:" in result.stdout
+    assert "Ahot@2.0:" in result.stdout
     assert "Invariants: PASS" in result.stdout
