@@ -60,3 +60,6 @@ results/**/*.stl
 
 # Logs
 *.log
+
+# Claude Code local/project scratch settings
+.claude/
