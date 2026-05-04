@@ -1,4 +1,4 @@
-"""Geometry package: STL/mesh I/O and quality reporting."""
+"""Geometry package: STL/mesh I/O, quality reporting, and surface coordinates."""
 from optics_simulation.geometry.mesh_io import (
     GeometryError,
     MeshLoadError,
@@ -9,12 +9,22 @@ from optics_simulation.geometry.quality import (
     MeshQualityReport,
     create_mesh_quality_report,
 )
+from optics_simulation.geometry.surface_coordinates import (
+    SurfaceCoordinateMap,
+    create_vertex_surface_coordinates,
+    normalize_cylindrical_coordinates,
+    point_to_normalized_cylindrical,
+)
 
 __all__ = [
     "GeometryError",
     "MeshLoadError",
     "MeshQualityReport",
+    "SurfaceCoordinateMap",
     "create_mesh_quality_report",
+    "create_vertex_surface_coordinates",
     "load_mesh",
     "load_mesh_with_report",
+    "normalize_cylindrical_coordinates",
+    "point_to_normalized_cylindrical",
 ]
