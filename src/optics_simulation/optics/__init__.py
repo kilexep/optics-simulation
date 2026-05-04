@@ -1,7 +1,11 @@
-"""Optics package: ray sources, intersection, Snell/Fresnel, propagation, pipeline."""
+"""Optics package: ray sources, intersection, Snell/Fresnel, propagation, pipeline, multi-step."""
 from optics_simulation.optics.intersection import (
     IntersectionResult,
     intersect_rays,
+)
+from optics_simulation.optics.multi_step import (
+    MultiStepTraceResult,
+    run_multi_step_trace,
 )
 from optics_simulation.optics.pipeline import (
     SingleInterfacePipelineResult,
@@ -26,6 +30,7 @@ from optics_simulation.optics.refraction import (
 
 __all__ = [
     "IntersectionResult",
+    "MultiStepTraceResult",
     "OpticsError",
     "PropagationResult",
     "RayBundle",
@@ -38,5 +43,6 @@ __all__ = [
     "parallel_ray_grid",
     "propagate_through_interface",
     "refract_direction",
+    "run_multi_step_trace",
     "run_single_interface_pipeline",
 ]
