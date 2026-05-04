@@ -1,7 +1,11 @@
-"""Optics package: ray sources, ray-mesh intersection, Snell/Fresnel, and propagation."""
+"""Optics package: ray sources, intersection, Snell/Fresnel, propagation, pipeline."""
 from optics_simulation.optics.intersection import (
     IntersectionResult,
     intersect_rays,
+)
+from optics_simulation.optics.pipeline import (
+    SingleInterfacePipelineResult,
+    run_single_interface_pipeline,
 )
 from optics_simulation.optics.propagation import (
     PropagationResult,
@@ -26,6 +30,7 @@ __all__ = [
     "PropagationResult",
     "RayBundle",
     "RefractionResult",
+    "SingleInterfacePipelineResult",
     "fresnel_unpolarized",
     "intersect_rays",
     "make_ray_bundle",
@@ -33,4 +38,5 @@ __all__ = [
     "parallel_ray_grid",
     "propagate_through_interface",
     "refract_direction",
+    "run_single_interface_pipeline",
 ]
