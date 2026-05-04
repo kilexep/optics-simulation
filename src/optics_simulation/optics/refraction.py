@@ -9,14 +9,19 @@ Convention
 ----------
 - ``wi`` points **toward** the surface (i.e. it is the direction of
   propagation of the incident ray as it approaches the interface).
-- ``normal`` is the geometric surface normal. It is *ideally* directed
-  from the incident medium into the transmitting medium so that
-  ``cos_i = -dot(wi, normal) > 0``. When the caller passes the
-  opposite-facing normal (back-face hit), this function detects that
-  via ``cos_i < 0`` and internally flips the normal **and** swaps
-  ``eta_i`` ↔ ``eta_t``. The returned ``RefractionResult`` reports
-  ``cos_i``, ``eta_i``, ``eta_t`` after that swap, so the values
-  describe the actual incident / transmitting media for this hit.
+- ``eta_i`` is the refractive index of the medium the ray is
+  **currently in** (the incident medium).
+- ``eta_t`` is the refractive index of the medium the ray is **about
+  to enter** (the transmitting medium).
+- ``normal`` is a geometric surface normal of any orientation. When
+  ``cos_i = -dot(wi, normal) < 0`` the function flips ``normal``
+  internally so the corrected normal points back into the incident
+  medium and ``cos_i >= 0``. **No medium swap is performed.**
+  ``eta_i`` and ``eta_t`` are treated as authoritative caller input
+  and are used unchanged for the Snell / Fresnel computation.
+- The returned ``RefractionResult.eta_i`` / ``eta_t`` echo the
+  caller-provided values exactly; back-face normal flip is purely a
+  geometric correction, not a medium relabeling.
 - The returned ``direction`` is the **transmitted** ray direction
   (unit length). On total internal reflection it is ``None``. The
   reflected direction is intentionally not returned here — it belongs
@@ -34,6 +39,11 @@ Limitations
   ``eta_t`` must already be evaluated at the wavelength of interest.
 - **Scalar interface.** This module operates on a single ray at a
   time. Vectorization over a ray bundle is intentionally deferred.
+- **Caller is responsible for medium semantics.** This function
+  performs only geometric normal correction; it does not detect
+  whether the ray is "really" inside or outside any body. Multi-step
+  tracers must track media themselves and pass authoritative
+  ``(eta_i, eta_t)`` per interface.
 """
 from __future__ import annotations
 
@@ -120,10 +130,12 @@ def refract_direction(
 ) -> RefractionResult:
     """Snell refraction + Fresnel for a single incident ray.
 
-    See module docstring for the sign / direction convention. Back-face
-    hits (``cos_i < 0`` against the supplied normal) are auto-corrected
-    by flipping the normal and swapping ``eta_i`` / ``eta_t``; the
-    returned result reflects the post-swap media.
+    See module docstring for the convention. ``eta_i`` (current
+    medium) and ``eta_t`` (next medium) are caller-authoritative and
+    are preserved on the returned ``RefractionResult`` exactly as
+    passed. If ``normal`` is back-facing relative to ``wi``
+    (``cos_i < 0``) the function flips it internally so ``cos_i >= 0``
+    — geometric correction only, no medium swap.
     """
     wi_n = normalize_vector(wi)
     n = normalize_vector(normal)
@@ -131,7 +143,6 @@ def refract_direction(
     cos_i = float(-np.dot(wi_n, n))
     if cos_i < 0.0:
         n = -n
-        eta_i, eta_t = eta_t, eta_i
         cos_i = float(-np.dot(wi_n, n))
 
     eta = float(eta_i) / float(eta_t)

@@ -157,25 +157,22 @@ def test_refract_direction_r_plus_t_equals_one_for_non_tir() -> None:
     assert result.reflectance + result.transmittance == pytest.approx(1.0, abs=1e-12)
 
 
-def test_refract_direction_back_face_normal_flip_handled() -> None:
-    # Same incident ray, but normal pointing the "wrong" way.
-    # Per spec, do NOT enforce identical direction; only check:
-    #   - no crash
-    #   - cos_i >= 0 after internal flip
-    #   - eta_i / eta_t reported are post-swap (here: swapped vs. inputs)
-    #   - R + T ≈ 1
+def test_refract_direction_back_face_flip_preserves_eta() -> None:
+    # New convention: when the supplied normal is back-facing
+    # (cos_i < 0 against wi), the function flips the normal for
+    # geometric correctness only. eta_i (current medium) and eta_t
+    # (next medium) are caller-authoritative and must NOT be swapped.
     wi = np.array([0.3, 0.0, -np.sqrt(1.0 - 0.09)])
     result = refract_direction(
         wi=wi,
-        normal=[0.0, 0.0, -1.0],  # flipped from the "ideal" outward normal
+        normal=[0.0, 0.0, -1.0],  # back-facing for this incident ray
         eta_i=IOR_AIR,
         eta_t=IOR_PET,
     )
     assert result.cos_i >= 0.0
-    # back-face flip swaps the media: post-swap eta_i should equal the
-    # caller's eta_t, and post-swap eta_t should equal the caller's eta_i.
-    assert result.eta_i == pytest.approx(IOR_PET)
-    assert result.eta_t == pytest.approx(IOR_AIR)
+    # Eta is preserved exactly as the caller supplied (no swap):
+    assert result.eta_i == pytest.approx(IOR_AIR)
+    assert result.eta_t == pytest.approx(IOR_PET)
     assert result.reflectance + result.transmittance == pytest.approx(1.0, abs=1e-12)
 
 
@@ -197,3 +194,84 @@ def test_sanity_normal_incidence_reflectances_match_textbook() -> None:
     assert r_air_pet == pytest.approx(0.04965, abs=5e-4)
     assert r_air_water == pytest.approx(0.02035, abs=5e-4)
     assert r_water_pet == pytest.approx(0.00650, abs=5e-4)
+
+
+def test_refract_direction_pet_to_air_oblique_bends_away_from_normal() -> None:
+    # PET -> AIR below the critical angle: the transmitted ray bends
+    # AWAY from the normal (angle from normal grows). Equivalently
+    # |z|-component shrinks and the transverse component grows.
+    angle = np.deg2rad(20.0)
+    wi = np.array([np.sin(angle), 0.0, -np.cos(angle)])
+    result = refract_direction(
+        wi=wi,
+        normal=[0.0, 0.0, 1.0],
+        eta_i=IOR_PET,
+        eta_t=IOR_AIR,
+    )
+    assert not result.total_internal_reflection
+    assert result.direction is not None
+    assert np.linalg.norm(result.direction) == pytest.approx(1.0, abs=1e-12)
+    assert abs(result.direction[2]) < abs(wi[2])
+    assert abs(result.direction[0]) > abs(wi[0])
+    assert result.eta_i == pytest.approx(IOR_PET)
+    assert result.eta_t == pytest.approx(IOR_AIR)
+
+
+def test_refract_direction_pet_to_air_above_critical_is_tir() -> None:
+    # New-convention regression: PET -> AIR at 60 deg (well above the
+    # ~39.4 deg critical angle for n=1.575) must still TIR, with eta
+    # echoed back unchanged.
+    angle = np.deg2rad(60.0)
+    wi = np.array([np.sin(angle), 0.0, -np.cos(angle)])
+    result = refract_direction(
+        wi=wi,
+        normal=[0.0, 0.0, 1.0],
+        eta_i=IOR_PET,
+        eta_t=IOR_AIR,
+    )
+    assert result.total_internal_reflection is True
+    assert result.direction is None
+    assert result.cos_t is None
+    assert result.reflectance == pytest.approx(1.0)
+    assert result.transmittance == pytest.approx(0.0)
+    # Eta is caller-authoritative — preserved on TIR too.
+    assert result.eta_i == pytest.approx(IOR_PET)
+    assert result.eta_t == pytest.approx(IOR_AIR)
+
+
+def test_refract_direction_eta_preserved_under_both_normal_orientations() -> None:
+    # Same wi, same caller-supplied (eta_i, eta_t), two normal
+    # orientations: outward-facing and back-facing. The function must
+    # report the caller's eta values unchanged in both calls.
+    wi = [0.3, 0.0, -float(np.sqrt(0.91))]
+    forward = refract_direction(
+        wi=wi, normal=[0.0, 0.0, 1.0], eta_i=IOR_AIR, eta_t=IOR_PET,
+    )
+    backward = refract_direction(
+        wi=wi, normal=[0.0, 0.0, -1.0], eta_i=IOR_AIR, eta_t=IOR_PET,
+    )
+    for r in (forward, backward):
+        assert r.cos_i >= 0.0
+        assert r.eta_i == pytest.approx(IOR_AIR)
+        assert r.eta_t == pytest.approx(IOR_PET)
+        assert not r.total_internal_reflection
+        assert r.reflectance + r.transmittance == pytest.approx(1.0, abs=1e-12)
+    # Geometric correction makes the back-face case agree with the
+    # forward case at the cos_i level.
+    assert forward.cos_i == pytest.approx(backward.cos_i, abs=1e-12)
+
+
+def test_refract_direction_result_eta_equals_caller_eta_for_pet_to_air() -> None:
+    # Direct lock on requirements 6 and 7: result.eta_i / result.eta_t
+    # must echo the caller-supplied values for the PET -> AIR direction
+    # as well, including under back-face normal flip.
+    wi = [0.3, 0.0, -float(np.sqrt(0.91))]
+    result = refract_direction(
+        wi=wi,
+        normal=[0.0, 0.0, -1.0],  # back-face for this ray
+        eta_i=IOR_PET,
+        eta_t=IOR_AIR,
+    )
+    assert result.eta_i == pytest.approx(IOR_PET)
+    assert result.eta_t == pytest.approx(IOR_AIR)
+    assert result.cos_i >= 0.0
