@@ -1,9 +1,15 @@
-"""Optics package: ray sources, intersection, Snell/Fresnel, propagation, pipeline, multi-step, detector."""
+"""Optics package: ray sources, intersection, Snell/Fresnel, propagation, pipeline, multi-step, detector, accumulation."""
 from optics_simulation.optics.detector import (
     DetectorHitResult,
     DetectorPlane,
     create_detector_plane,
     intersect_detector_plane,
+)
+from optics_simulation.optics.detector_accumulation import (
+    DetectorAccumulationResult,
+    DetectorGrid,
+    accumulate_detector_hits,
+    create_detector_grid,
 )
 from optics_simulation.optics.intersection import (
     IntersectionResult,
@@ -35,6 +41,8 @@ from optics_simulation.optics.refraction import (
 )
 
 __all__ = [
+    "DetectorAccumulationResult",
+    "DetectorGrid",
     "DetectorHitResult",
     "DetectorPlane",
     "IntersectionResult",
@@ -44,6 +52,8 @@ __all__ = [
     "RayBundle",
     "RefractionResult",
     "SingleInterfacePipelineResult",
+    "accumulate_detector_hits",
+    "create_detector_grid",
     "create_detector_plane",
     "fresnel_unpolarized",
     "intersect_detector_plane",
