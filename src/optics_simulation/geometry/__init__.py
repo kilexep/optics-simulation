@@ -15,6 +15,9 @@ from optics_simulation.geometry.surface_coordinates import (
     normalize_cylindrical_coordinates,
     point_to_normalized_cylindrical,
 )
+from optics_simulation.geometry.synthetic_bottle import (
+    create_synthetic_bottle_body,
+)
 
 __all__ = [
     "GeometryError",
@@ -22,6 +25,7 @@ __all__ = [
     "MeshQualityReport",
     "SurfaceCoordinateMap",
     "create_mesh_quality_report",
+    "create_synthetic_bottle_body",
     "create_vertex_surface_coordinates",
     "load_mesh",
     "load_mesh_with_report",
