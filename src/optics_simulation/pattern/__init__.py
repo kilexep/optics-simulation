@@ -11,13 +11,21 @@ from optics_simulation.pattern.gaussian import (
     evaluate_gaussian_dimple_field,
     sample_dimple_centers_from_risk,
 )
+from optics_simulation.pattern.vertex_displacement import (
+    VertexPatternDisplacement,
+    compute_vertex_displacement_amounts,
+    evaluate_gaussian_pattern_at_points,
+)
 
 __all__ = [
     "GaussianDimple",
     "GaussianDimplePattern",
     "PatternError",
+    "VertexPatternDisplacement",
+    "compute_vertex_displacement_amounts",
     "create_gaussian_dimple_pattern",
     "evaluate_gaussian_dimple_field",
+    "evaluate_gaussian_pattern_at_points",
     "gaussian_pattern_from_descriptor",
     "gaussian_pattern_to_descriptor",
     "sample_dimple_centers_from_risk",
