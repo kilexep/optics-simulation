@@ -31,12 +31,24 @@ Termination
   (all rays missed or were total-internally-reflected).
 - ``"completed_interfaces"``: every entry of ``interface_sequence``
   ran successfully and rays remained active at the end.
+
+Lineage
+-------
+``final_source_ray_indices`` is the per-step
+``propagation.source_ray_indices`` chained across the whole trace:
+for each ray in ``final_rays``, it gives the index of the
+``initial_rays`` entry that produced it. It has shape
+``(final_rays.ray_count,)`` and dtype ``int64``. Zero-step traces
+(``no_interfaces`` or ``max_steps_reached`` with ``effective_steps == 0``)
+return ``np.arange(initial_rays.ray_count)``; ``no_active_rays``
+traces return an empty int64 array.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Sequence
 
+import numpy as np
 import trimesh
 
 from optics_simulation.optics.pipeline import (
@@ -53,6 +65,7 @@ class MultiStepTraceResult:
     steps: tuple[SingleInterfacePipelineResult, ...]
     step_count: int
     termination_reason: str
+    final_source_ray_indices: np.ndarray  # shape (final_rays.ray_count,) int64
 
 
 def _validate_interface_sequence(
@@ -105,6 +118,8 @@ def run_multi_step_trace(
 
     _validate_interface_sequence(interface_sequence)
 
+    current_source_indices = np.arange(rays.ray_count, dtype=np.int64)
+
     if seq_len == 0:
         return MultiStepTraceResult(
             initial_rays=rays,
@@ -112,6 +127,7 @@ def run_multi_step_trace(
             steps=(),
             step_count=0,
             termination_reason="no_interfaces",
+            final_source_ray_indices=current_source_indices.copy(),
         )
 
     effective_steps = seq_len if max_steps is None else max_steps
@@ -123,6 +139,7 @@ def run_multi_step_trace(
             steps=(),
             step_count=0,
             termination_reason="max_steps_reached",
+            final_source_ray_indices=current_source_indices.copy(),
         )
 
     current_rays = rays
@@ -139,6 +156,9 @@ def run_multi_step_trace(
             epsilon=epsilon,
         )
         steps_list.append(step)
+        current_source_indices = current_source_indices[
+            step.propagation.source_ray_indices
+        ]
         current_rays = step.propagation.next_rays
         if current_rays.ray_count == 0:
             terminated_early = True
@@ -157,4 +177,5 @@ def run_multi_step_trace(
         steps=tuple(steps_list),
         step_count=len(steps_list),
         termination_reason=termination_reason,
+        final_source_ray_indices=current_source_indices.copy(),
     )
