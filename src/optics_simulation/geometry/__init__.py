@@ -18,15 +18,21 @@ from optics_simulation.geometry.surface_coordinates import (
 from optics_simulation.geometry.synthetic_bottle import (
     create_synthetic_bottle_body,
 )
+from optics_simulation.geometry.hit_coordinates import (
+    HitSurfaceCoordinates,
+    hit_to_surface_coordinates,
+)
 
 __all__ = [
     "GeometryError",
+    "HitSurfaceCoordinates",
     "MeshLoadError",
     "MeshQualityReport",
     "SurfaceCoordinateMap",
     "create_mesh_quality_report",
     "create_synthetic_bottle_body",
     "create_vertex_surface_coordinates",
+    "hit_to_surface_coordinates",
     "load_mesh",
     "load_mesh_with_report",
     "normalize_cylindrical_coordinates",
