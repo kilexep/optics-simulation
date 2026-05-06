@@ -115,6 +115,7 @@ def run_baseline_angle_scan(
     incident_reference: float = 1.0,
     thresholds: tuple[float, ...] = (2.0, 5.0, 10.0),
     top_percent: float = 1.0,
+    use_power_weights: bool = False,
 ) -> AngleScanResult:
     """Run the synthetic-mesh optical pipeline once per incident angle.
 
@@ -145,6 +146,19 @@ def run_baseline_angle_scan(
     (``np.argmax`` semantics). Note that a higher ``c99`` means a
     more concentrated caustic, i.e. a higher-risk angle, not a
     "better" angle.
+
+    ``use_power_weights`` (default ``False``) controls how detector
+    hits are accumulated. When ``False``, every detector hit
+    contributes a unit weight (the historical ray-count surrogate).
+    When ``True``, the cumulative Fresnel transmission weight from
+    :class:`MultiStepTraceResult.final_ray_weights` is forwarded to
+    :func:`accumulate_detector_hits` as the ``weights`` argument,
+    making ``c99`` / ``cmax`` a transmitted-power surrogate. Adds
+    cumulative Fresnel transmission weighting to detector
+    accumulation; **still not a full physical irradiance calibration**
+    (no pixel-area normalization, no spectral integration, no
+    polarization, no dispersion, no reflected branches, no source
+    intensity calibration).
     """
     angle_list = [float(a) for a in angles_degrees]
     if not angle_list:
@@ -162,7 +176,12 @@ def run_baseline_angle_scan(
         )
         trace = run_multi_step_trace(mesh, rays, interface_sequence)
         hits = intersect_detector_plane(trace.final_rays, detector)
-        accum = accumulate_detector_hits(hits, detector_grid)
+        weights_for_accum = (
+            trace.final_ray_weights if use_power_weights else None
+        )
+        accum = accumulate_detector_hits(
+            hits, detector_grid, weights=weights_for_accum
+        )
         metrics = compute_optical_metrics(
             accum.weight_map,
             incident_reference=incident_reference,

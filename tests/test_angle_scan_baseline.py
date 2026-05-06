@@ -208,3 +208,101 @@ def test_per_angle_direction_is_unit_norm_and_matches_helper() -> None:
         assert np.allclose(
             entry.direction, direction_from_incident_angle(angle)
         )
+
+
+# ---------------------------------------------------------------------------
+# Power-weighted detector accumulation (use_power_weights)
+# ---------------------------------------------------------------------------
+
+
+def _scan(*, use_power_weights: bool, angles=(0.0, 10.0)):
+    return run_baseline_angle_scan(
+        mesh=_slab_mesh(),
+        angles_degrees=list(angles),
+        ray_grid_config=_ray_grid_config(),
+        interface_sequence=SLAB_INTERFACES,
+        detector=_detector(),
+        detector_grid=_detector_grid(),
+        thresholds=THRESHOLDS,
+        use_power_weights=use_power_weights,
+    )
+
+
+def test_use_power_weights_default_is_false_backward_compatible() -> None:
+    explicit = run_baseline_angle_scan(
+        mesh=_slab_mesh(),
+        angles_degrees=[0.0, 10.0],
+        ray_grid_config=_ray_grid_config(),
+        interface_sequence=SLAB_INTERFACES,
+        detector=_detector(),
+        detector_grid=_detector_grid(),
+        thresholds=THRESHOLDS,
+        use_power_weights=False,
+    )
+    implicit = run_baseline_angle_scan(
+        mesh=_slab_mesh(),
+        angles_degrees=[0.0, 10.0],
+        ray_grid_config=_ray_grid_config(),
+        interface_sequence=SLAB_INTERFACES,
+        detector=_detector(),
+        detector_grid=_detector_grid(),
+        thresholds=THRESHOLDS,
+    )
+    for ex, im in zip(explicit.per_angle, implicit.per_angle):
+        assert ex.detector_hits == im.detector_hits
+        assert ex.metrics.c99 == pytest.approx(im.metrics.c99)
+        assert ex.metrics.cmax == pytest.approx(im.metrics.cmax)
+
+
+def test_use_power_weights_true_smoke_normal_incidence() -> None:
+    weighted = _scan(use_power_weights=True, angles=(0.0,))
+    unweighted = _scan(use_power_weights=False, angles=(0.0,))
+    we = weighted.per_angle[0]
+    ue = unweighted.per_angle[0]
+
+    # Hit count is a count of rays reaching the detector — invariant
+    # under weight choice.
+    assert we.detector_hits == ue.detector_hits
+
+    # If any rays reached the detector, weighted Cmax / C99 must be
+    # strictly less than unweighted because passive Fresnel T < 1.
+    if ue.detector_hits > 0:
+        assert we.metrics.cmax < ue.metrics.cmax
+        assert we.metrics.c99 <= ue.metrics.c99
+        # And weighted Cmax stays bounded by 1.0 (no per-pixel multi-hit
+        # in this fixture's slab + 7x7 normal-incidence grid).
+        assert we.metrics.cmax <= 1.0 + 1e-9
+
+
+def test_use_power_weights_true_oblique_reduces_metrics() -> None:
+    angle = 30.0
+    weighted = _scan(use_power_weights=True, angles=(angle,))
+    unweighted = _scan(use_power_weights=False, angles=(angle,))
+    we = weighted.per_angle[0]
+    ue = unweighted.per_angle[0]
+    if ue.detector_hits > 0:
+        assert we.metrics.c99 < ue.metrics.c99
+
+
+def test_use_power_weights_true_does_not_mutate_mesh_or_config() -> None:
+    mesh = _slab_mesh()
+    cfg = _ray_grid_config()
+    cfg["direction"] = (0.5, 0.5, -0.5)
+    vertices_before = np.array(mesh.vertices, copy=True)
+    faces_before = np.array(mesh.faces, copy=True)
+    cfg_before = dict(cfg)
+
+    run_baseline_angle_scan(
+        mesh=mesh,
+        angles_degrees=[0.0, 10.0],
+        ray_grid_config=cfg,
+        interface_sequence=SLAB_INTERFACES,
+        detector=_detector(),
+        detector_grid=_detector_grid(),
+        thresholds=THRESHOLDS,
+        use_power_weights=True,
+    )
+
+    assert np.array_equal(np.asarray(mesh.vertices), vertices_before)
+    assert np.array_equal(np.asarray(mesh.faces), faces_before)
+    assert cfg == cfg_before

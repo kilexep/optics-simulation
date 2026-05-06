@@ -161,6 +161,7 @@ def run_angle_distance_sweep(
     incident_reference: float = 1.0,
     thresholds: tuple[float, ...] = (2.0, 5.0, 10.0),
     top_percent: float = 1.0,
+    use_power_weights: bool = False,
 ) -> AngleDistanceScanResult:
     """Run the synthetic-mesh optical pipeline over angles x detector z.
 
@@ -223,6 +224,22 @@ def run_angle_distance_sweep(
     Any of these raises :class:`AngleScanError`. Duplicate
     ``detector_z`` values are accepted and preserved in input
     order.
+
+    Power weighting
+    ---------------
+    ``use_power_weights`` (default ``False``) controls how detector
+    hits are accumulated. When ``False``, every detector hit
+    contributes a unit weight (the historical ray-count surrogate).
+    When ``True``, the per-angle cumulative Fresnel transmission
+    weight from :class:`MultiStepTraceResult.final_ray_weights` is
+    forwarded to :func:`accumulate_detector_hits` as the ``weights``
+    argument and reused across every detector position in the
+    sweep, making ``c99`` / ``cmax`` a transmitted-power surrogate.
+    Adds cumulative Fresnel transmission weighting to detector
+    accumulation; **still not a full physical irradiance
+    calibration** (no pixel-area normalization, no spectral
+    integration, no polarization, no dispersion, no reflected
+    branches, no source intensity calibration).
     """
     angle_list = _validated_finite_floats(
         angles_degrees, name="angles_degrees"
@@ -254,6 +271,9 @@ def run_angle_distance_sweep(
             **grid_kwargs,
         )
         trace = run_multi_step_trace(mesh, rays, interface_sequence)
+        weights_for_accum = (
+            trace.final_ray_weights if use_power_weights else None
+        )
 
         for z in distance_list:
             detector = create_detector_plane(
@@ -264,7 +284,9 @@ def run_angle_distance_sweep(
                 height=detector_height,
             )
             hits = intersect_detector_plane(trace.final_rays, detector)
-            accum = accumulate_detector_hits(hits, detector_grid)
+            accum = accumulate_detector_hits(
+                hits, detector_grid, weights=weights_for_accum
+            )
             metrics = compute_optical_metrics(
                 accum.weight_map,
                 incident_reference=incident_reference,

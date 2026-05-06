@@ -302,3 +302,97 @@ def test_no_file_output_created(
     _run(angles=[0.0, 10.0], distances=[-15.0, -25.0])
     after = set(os.listdir(tmp_path))
     assert before == after
+
+
+# ---------------------------------------------------------------------------
+# Power-weighted detector accumulation (use_power_weights)
+# ---------------------------------------------------------------------------
+
+
+def _run_weighted(
+    *,
+    use_power_weights: bool,
+    angles: list[float],
+    distances: list[float],
+) -> AngleDistanceScanResult:
+    return run_angle_distance_sweep(
+        mesh=_slab_mesh(),
+        angles_degrees=angles,
+        detector_z_values=distances,
+        ray_grid_config=_ray_grid_config(),
+        interface_sequence=SLAB_INTERFACES,
+        thresholds=THRESHOLDS,
+        use_power_weights=use_power_weights,
+        **_detector_kwargs(),
+    )
+
+
+def test_use_power_weights_default_is_false_backward_compatible() -> None:
+    explicit = _run_weighted(
+        use_power_weights=False,
+        angles=[0.0, 10.0],
+        distances=[-15.0, -25.0],
+    )
+    implicit = _run(angles=[0.0, 10.0], distances=[-15.0, -25.0])
+    assert len(explicit.per_result) == len(implicit.per_result)
+    for ex, im in zip(explicit.per_result, implicit.per_result):
+        assert ex.angle_degrees == im.angle_degrees
+        assert ex.detector_z == im.detector_z
+        assert ex.detector_hits == im.detector_hits
+        assert ex.metrics.c99 == pytest.approx(im.metrics.c99)
+        assert ex.metrics.cmax == pytest.approx(im.metrics.cmax)
+
+
+def test_use_power_weights_true_smoke() -> None:
+    weighted = _run_weighted(
+        use_power_weights=True,
+        angles=[0.0, 10.0],
+        distances=[-15.0, -25.0],
+    )
+    unweighted = _run(
+        angles=[0.0, 10.0], distances=[-15.0, -25.0]
+    )
+    assert weighted.angle_count == unweighted.angle_count
+    assert weighted.detector_count == unweighted.detector_count
+    assert len(weighted.per_result) == len(unweighted.per_result)
+
+    saw_strict_decrease = False
+    for we, ue in zip(weighted.per_result, unweighted.per_result):
+        # ordering preserved
+        assert we.angle_degrees == ue.angle_degrees
+        assert we.detector_z == ue.detector_z
+        # hit counts unchanged (detector_hits is a ray count, not a sum)
+        assert we.detector_hits == ue.detector_hits
+        # weighted metrics never exceed unweighted (each weight <= 1)
+        assert we.metrics.c99 <= ue.metrics.c99 + 1e-9
+        assert we.metrics.cmax <= ue.metrics.cmax + 1e-9
+        if ue.detector_hits > 0 and ue.metrics.cmax > 0.0:
+            if we.metrics.cmax < ue.metrics.cmax - 1e-9:
+                saw_strict_decrease = True
+    # On the slab fixture at non-grazing angles, Fresnel T is strictly
+    # less than 1, so at least one entry should show a strict decrease.
+    assert saw_strict_decrease
+
+
+def test_use_power_weights_true_does_not_mutate_mesh_or_config() -> None:
+    mesh = _slab_mesh()
+    cfg = _ray_grid_config()
+    cfg["direction"] = (0.5, 0.5, -0.5)
+    vertices_before = np.array(mesh.vertices, copy=True)
+    faces_before = np.array(mesh.faces, copy=True)
+    cfg_before = dict(cfg)
+
+    run_angle_distance_sweep(
+        mesh=mesh,
+        angles_degrees=[0.0, 10.0],
+        detector_z_values=[-15.0, -25.0],
+        ray_grid_config=cfg,
+        interface_sequence=SLAB_INTERFACES,
+        thresholds=THRESHOLDS,
+        use_power_weights=True,
+        **_detector_kwargs(),
+    )
+
+    assert np.array_equal(np.asarray(mesh.vertices), vertices_before)
+    assert np.array_equal(np.asarray(mesh.faces), faces_before)
+    assert cfg == cfg_before

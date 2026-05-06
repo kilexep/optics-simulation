@@ -42,6 +42,20 @@ for each ray in ``final_rays``, it gives the index of the
 (``no_interfaces`` or ``max_steps_reached`` with ``effective_steps == 0``)
 return ``np.arange(initial_rays.ray_count)``; ``no_active_rays``
 traces return an empty int64 array.
+
+Cumulative Fresnel transmission weighting
+-----------------------------------------
+``final_ray_weights[k]`` is the product of per-step unpolarized
+Fresnel transmittance along the surviving transmitted path for
+``final_rays[k]``. It has shape ``(final_rays.ray_count,)`` and
+dtype ``float``. Zero-step traces (``no_interfaces`` /
+``max_steps_reached`` with ``effective_steps == 0``) return
+``np.ones(initial_rays.ray_count)``; ``no_active_rays`` traces
+return an empty float array. Adds cumulative Fresnel transmission
+weighting to detector accumulation; **still not a full physical
+irradiance calibration** — pixel area normalization, spectral
+integration, polarization, dispersion, reflected branches, and
+source intensity calibration are out of scope.
 """
 from __future__ import annotations
 
@@ -66,6 +80,7 @@ class MultiStepTraceResult:
     step_count: int
     termination_reason: str
     final_source_ray_indices: np.ndarray  # shape (final_rays.ray_count,) int64
+    final_ray_weights: np.ndarray         # shape (final_rays.ray_count,) float
 
 
 def _validate_interface_sequence(
@@ -119,6 +134,7 @@ def run_multi_step_trace(
     _validate_interface_sequence(interface_sequence)
 
     current_source_indices = np.arange(rays.ray_count, dtype=np.int64)
+    current_weights = np.ones(rays.ray_count, dtype=float)
 
     if seq_len == 0:
         return MultiStepTraceResult(
@@ -128,6 +144,7 @@ def run_multi_step_trace(
             step_count=0,
             termination_reason="no_interfaces",
             final_source_ray_indices=current_source_indices.copy(),
+            final_ray_weights=current_weights.copy(),
         )
 
     effective_steps = seq_len if max_steps is None else max_steps
@@ -140,6 +157,7 @@ def run_multi_step_trace(
             step_count=0,
             termination_reason="max_steps_reached",
             final_source_ray_indices=current_source_indices.copy(),
+            final_ray_weights=current_weights.copy(),
         )
 
     current_rays = rays
@@ -156,9 +174,12 @@ def run_multi_step_trace(
             epsilon=epsilon,
         )
         steps_list.append(step)
-        current_source_indices = current_source_indices[
-            step.propagation.source_ray_indices
-        ]
+        source = step.propagation.source_ray_indices
+        current_source_indices = current_source_indices[source]
+        current_weights = (
+            current_weights[source]
+            * step.propagation.transmittance[source]
+        )
         current_rays = step.propagation.next_rays
         if current_rays.ray_count == 0:
             terminated_early = True
@@ -178,4 +199,5 @@ def run_multi_step_trace(
         step_count=len(steps_list),
         termination_reason=termination_reason,
         final_source_ray_indices=current_source_indices.copy(),
+        final_ray_weights=current_weights.astype(float, copy=True),
     )

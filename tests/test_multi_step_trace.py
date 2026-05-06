@@ -413,3 +413,178 @@ def test_detector_hotspot_mapping_via_final_source_ray_indices(
     # uniqueness across selected rays follows from final lineage
     # uniqueness for non-splitting traces.
     assert len(set(mapped_initial.tolist())) == mapped_initial.size
+
+
+# ---------------------------------------------------------------------------
+# Cumulative Fresnel transmission weighting (final_ray_weights)
+# ---------------------------------------------------------------------------
+
+
+def test_zero_step_trace_has_ones_final_ray_weights(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    rays = _grid_rays_over_box()  # 9 rays
+    result = run_multi_step_trace(box_mesh, rays, [], max_steps=None)
+    assert result.termination_reason == "no_interfaces"
+    assert result.final_ray_weights.shape == (rays.ray_count,)
+    assert result.final_ray_weights.dtype == float
+    np.testing.assert_array_equal(
+        result.final_ray_weights, np.ones(rays.ray_count, dtype=float)
+    )
+
+
+def test_max_steps_zero_has_ones_final_ray_weights(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    rays = _grid_rays_over_box()
+    result = run_multi_step_trace(
+        box_mesh, rays, SLAB_INTERFACES, max_steps=0
+    )
+    assert result.termination_reason == "max_steps_reached"
+    assert result.final_ray_weights.shape == (rays.ray_count,)
+    assert result.final_ray_weights.dtype == float
+    np.testing.assert_array_equal(
+        result.final_ray_weights, np.ones(rays.ray_count, dtype=float)
+    )
+
+
+def test_no_active_rays_gives_empty_final_ray_weights(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    rays = parallel_ray_grid(
+        origin_plane_z=20.0,
+        direction=(0.0, 0.0, 1.0),  # pointing away from box: all miss
+        x_range=(-1.0, 1.0),
+        y_range=(-1.0, 1.0),
+        nx=2,
+        ny=2,
+    )
+    result = run_multi_step_trace(box_mesh, rays, SLAB_INTERFACES)
+    assert result.termination_reason == "no_active_rays"
+    assert result.final_ray_weights.shape == (0,)
+    assert result.final_ray_weights.dtype == float
+
+
+def test_two_step_slab_final_ray_weights_length_matches_final_rays(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    rays = make_ray_bundle([[0.0, 0.0, 20.0]], [[0.0, 0.0, -1.0]])
+    result = run_multi_step_trace(box_mesh, rays, SLAB_INTERFACES)
+    assert result.final_ray_weights.shape == (result.final_rays.ray_count,)
+    assert result.final_ray_weights.shape == (1,)
+
+
+def test_final_ray_weights_finite_and_nonneg(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    angles = (0.0, 5.0, 15.0, 25.0)
+    for deg in angles:
+        theta = np.deg2rad(deg)
+        wi = [float(np.sin(theta)), 0.0, -float(np.cos(theta))]
+        rays = parallel_ray_grid(
+            origin_plane_z=20.0,
+            direction=tuple(wi),
+            x_range=(-2.0, 2.0),
+            y_range=(-2.0, 2.0),
+            nx=3,
+            ny=3,
+        )
+        result = run_multi_step_trace(box_mesh, rays, SLAB_INTERFACES)
+        w = result.final_ray_weights
+        assert np.isfinite(w).all()
+        assert (w >= 0.0).all()
+
+
+def test_final_ray_weights_bounded_by_one_in_passive_slab(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    angles = (0.0, 10.0, 20.0, 30.0)
+    for deg in angles:
+        theta = np.deg2rad(deg)
+        wi = [float(np.sin(theta)), 0.0, -float(np.cos(theta))]
+        rays = parallel_ray_grid(
+            origin_plane_z=20.0,
+            direction=tuple(wi),
+            x_range=(-2.0, 2.0),
+            y_range=(-2.0, 2.0),
+            nx=3,
+            ny=3,
+        )
+        result = run_multi_step_trace(box_mesh, rays, SLAB_INTERFACES)
+        w = result.final_ray_weights
+        if w.size > 0:
+            assert float(w.max()) <= 1.0 + 1e-12
+            # Slab transmission at non-grazing angles is also strictly
+            # below 1 (Fresnel R > 0). Sanity-check normal incidence:
+            # cumulative T = (1 - R_air_pet) * (1 - R_pet_air).
+            assert float(w.min()) > 0.0
+
+
+def test_manual_chain_matches_final_ray_weights(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    angle = np.deg2rad(20.0)
+    sx, sz = float(np.sin(angle)), float(np.cos(angle))
+    rays = parallel_ray_grid(
+        origin_plane_z=20.0,
+        direction=(sx, 0.0, -sz),
+        x_range=(-2.0, 2.0),
+        y_range=(-2.0, 2.0),
+        nx=3,
+        ny=3,
+    )
+    result = run_multi_step_trace(box_mesh, rays, SLAB_INTERFACES)
+
+    expected = np.ones(rays.ray_count, dtype=float)
+    for step in result.steps:
+        src = step.propagation.source_ray_indices
+        expected = expected[src] * step.propagation.transmittance[src]
+
+    assert expected.shape == result.final_ray_weights.shape
+    np.testing.assert_allclose(
+        result.final_ray_weights, expected, atol=1e-12
+    )
+
+
+def test_final_ray_weights_aligned_with_final_source_ray_indices(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    rays = parallel_ray_grid(
+        origin_plane_z=20.0,
+        direction=(0.0, 0.0, -1.0),
+        x_range=(-2.0, 2.0),
+        y_range=(-2.0, 2.0),
+        nx=3,
+        ny=3,
+    )
+    result = run_multi_step_trace(box_mesh, rays, SLAB_INTERFACES)
+    assert (
+        result.final_ray_weights.shape
+        == result.final_source_ray_indices.shape
+    )
+    assert result.final_ray_weights.shape == (result.final_rays.ray_count,)
+    assert result.final_source_ray_indices.dtype == np.int64
+    assert result.final_ray_weights.dtype == float
+
+
+def test_final_ray_weights_does_not_alias_internal_state(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    rays = make_ray_bundle([[0.0, 0.0, 20.0]], [[0.0, 0.0, -1.0]])
+    result = run_multi_step_trace(box_mesh, rays, SLAB_INTERFACES)
+    snapshot = result.final_ray_weights.copy()
+    # Mutating the returned array must not affect another call's output.
+    result.final_ray_weights[:] = 0.0
+    result2 = run_multi_step_trace(box_mesh, rays, SLAB_INTERFACES)
+    np.testing.assert_array_equal(result2.final_ray_weights, snapshot)
+
+
+def test_mesh_not_mutated_by_weighted_trace(
+    box_mesh: trimesh.Trimesh,
+) -> None:
+    vertices_before = np.array(box_mesh.vertices, copy=True)
+    faces_before = np.array(box_mesh.faces, copy=True)
+    rays = make_ray_bundle([[0.0, 0.0, 20.0]], [[0.0, 0.0, -1.0]])
+    run_multi_step_trace(box_mesh, rays, SLAB_INTERFACES)
+    assert np.array_equal(np.asarray(box_mesh.vertices), vertices_before)
+    assert np.array_equal(np.asarray(box_mesh.faces), faces_before)
