@@ -16,6 +16,7 @@ from optics_simulation.geometry.surface_coordinates import (
     point_to_normalized_cylindrical,
 )
 from optics_simulation.geometry.synthetic_bottle import (
+    create_subdivided_synthetic_bottle_body,
     create_synthetic_bottle_body,
 )
 from optics_simulation.geometry.hit_coordinates import (
@@ -30,6 +31,7 @@ __all__ = [
     "MeshQualityReport",
     "SurfaceCoordinateMap",
     "create_mesh_quality_report",
+    "create_subdivided_synthetic_bottle_body",
     "create_synthetic_bottle_body",
     "create_vertex_surface_coordinates",
     "hit_to_surface_coordinates",
