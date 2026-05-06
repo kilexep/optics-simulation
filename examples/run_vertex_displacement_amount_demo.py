@@ -16,9 +16,10 @@ to keep the message of this demo (amount-only computation) clear.
 
 Limitations
 -----------
-- The mesh is a simple solid cylinder approximation. It does not
-  model wall thickness, neck, shoulder, base curvature, or water
-  volume.
+- The mesh is a vertically subdivided solid cylinder approximation
+  (``create_subdivided_synthetic_bottle_body``). It does not model
+  wall thickness, an inner surface, neck, shoulder, base curvature,
+  or water volume.
 - Risk is uniform-active (every pixel equally likely); this is
   not a physical caustic risk distribution.
 - The descriptor round-trip uses ``json.dumps`` / ``json.loads``
@@ -47,7 +48,7 @@ import numpy as np
 
 from optics_simulation.contribution.risk_map import RiskMap
 from optics_simulation.geometry import (
-    create_synthetic_bottle_body,
+    create_subdivided_synthetic_bottle_body,
     create_vertex_surface_coordinates,
 )
 from optics_simulation.pattern import (
@@ -63,6 +64,7 @@ from optics_simulation.pattern import (
 BOTTLE_RADIUS = 30.0
 BOTTLE_HEIGHT = 120.0
 BOTTLE_SECTIONS = 96
+BOTTLE_HEIGHT_SEGMENTS = 24
 RISK_RESOLUTION = (32, 64)  # (nv, nu)
 PATTERN_COUNT = 20
 PATTERN_AMPLITUDE = 1.0
@@ -115,6 +117,7 @@ def _print_summary(
         "mesh vertices are not moved."
     )
     print(f"Vertex count: {int(displacement.vertex_count)}")
+    print(f"Height segments: {int(BOTTLE_HEIGHT_SEGMENTS)}")
     print(f"Active vertex count: {int(displacement.active_mask.sum())}")
     print(f"Normalized depth min: {float(displacement.normalized_depth.min()):.4f}")
     print(f"Normalized depth max: {float(displacement.normalized_depth.max()):.4f}")
@@ -162,6 +165,9 @@ def _check_invariants(
 
     active_count = int(displacement.active_mask.sum())
     checks.append(0 <= active_count <= n)
+    checks.append(active_count > 0)
+    checks.append(float(displacement.normalized_depth.max()) > 0.0)
+    checks.append(float(displacement.physical_depth.max()) > 0.0)
 
     v = np.asarray(surface_map.v, dtype=float)
     boundary = (v <= BOUNDARY_EPSILON) | (v >= 1.0 - BOUNDARY_EPSILON)
@@ -177,10 +183,11 @@ def _check_invariants(
 
 
 def main() -> int:
-    mesh = create_synthetic_bottle_body(
+    mesh = create_subdivided_synthetic_bottle_body(
         radius=BOTTLE_RADIUS,
         height=BOTTLE_HEIGHT,
         sections=BOTTLE_SECTIONS,
+        height_segments=BOTTLE_HEIGHT_SEGMENTS,
     )
     surface_map = create_vertex_surface_coordinates(mesh)
 

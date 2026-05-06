@@ -36,6 +36,7 @@ def test_demo_script_runs_and_invariants_pass() -> None:
     assert "Vertex displacement amount demo" in result.stdout
     assert "Synthetic vertex-displacement-amount smoke check" in result.stdout
     assert "Vertex count:" in result.stdout
+    assert "Height segments:" in result.stdout
     assert "Active vertex count:" in result.stdout
     assert "Normalized depth max:" in result.stdout
     assert "Physical depth max:" in result.stdout
