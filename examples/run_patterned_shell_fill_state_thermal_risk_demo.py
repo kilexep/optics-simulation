@@ -84,6 +84,7 @@ from optics_simulation.metrics import (
 )
 from optics_simulation.optics import (
     RayBundle,
+    ShellMediumTrackingResult,
     accumulate_detector_hits,
     create_detector_grid,
     create_detector_plane,
@@ -91,6 +92,7 @@ from optics_simulation.optics import (
     intersect_detector_plane,
     make_ray_bundle,
     run_multi_step_trace,
+    run_surface_classified_shell_trace,
 )
 from optics_simulation.pattern import (
     compute_vertex_displacement_amounts,
@@ -127,10 +129,15 @@ BOUNDARY_EPSILON = 0.02
 DISPLACEMENT_MODE = "inward"
 
 ORIGIN_X = 100.0
-Y_RANGE = (-50.0, 50.0)
-Z_RANGE = (-70.0, 70.0)
+SIDE_Y_RANGE = (-25.0, 25.0)
+SIDE_Z_RANGE = (-50.0, 50.0)
+Y_RANGE = SIDE_Y_RANGE
+Z_RANGE = SIDE_Z_RANGE
 RAY_NY = 11
 RAY_NZ = 11
+TRACE_EPSILON = 0.1
+TRACE_RADIAL_TOLERANCE = 0.1
+TRACE_Z_TOLERANCE = 1e-6
 
 DETECTOR_CENTER = (-100.0, 0.0, 0.0)
 DETECTOR_NORMAL = (1.0, 0.0, 0.0)
@@ -214,6 +221,7 @@ def _run_case(
 ]:
     trace = run_multi_step_trace(
         mesh, rays, list(interface_sequence),
+        epsilon=TRACE_EPSILON,
     )
     detector = create_detector_plane(
         center=DETECTOR_CENTER,
@@ -455,6 +463,42 @@ def _print_fill_block(
         print("Delta threshold exceeded area: None")
 
 
+def _print_medium_tracking_block(
+    *,
+    air_tracking: ShellMediumTrackingResult,
+    water_tracking: ShellMediumTrackingResult,
+) -> None:
+    print(
+        "Note: shell medium preset validation is performed only "
+        "within the paraxial synthetic side-incidence envelope."
+    )
+    print(f"Trace epsilon: {float(TRACE_EPSILON):.4f}")
+    print(f"Validated side y range: {SIDE_Y_RANGE}")
+    print(f"Validated side z range: {SIDE_Z_RANGE}")
+    for fill_label, tracking in (
+        ("air", air_tracking),
+        ("water", water_tracking),
+    ):
+        print(f"Fill medium ({fill_label}) medium path: "
+              + " -> ".join(tracking.medium_path))
+        print(
+            f"Fill medium ({fill_label}) medium tracking validation passed: "
+            f"{bool(tracking.validation_passed)}"
+        )
+        print(
+            f"Fill medium ({fill_label}) unexpected surface count: "
+            f"{int(tracking.unexpected_surface_total)}"
+        )
+    print(
+        f"Medium tracking validation passed: "
+        f"{bool(air_tracking.validation_passed and water_tracking.validation_passed)}"
+    )
+    print(
+        f"Unexpected surface count: "
+        f"{int(air_tracking.unexpected_surface_total + water_tracking.unexpected_surface_total)}"
+    )
+
+
 def _check_invariants(
     rays: RayBundle,
     moved_count: int,
@@ -469,6 +513,8 @@ def _check_invariants(
         int, int, str,
         ThermalRiskMetrics, ThermalRiskMetrics,
     ]],
+    air_tracking: ShellMediumTrackingResult,
+    water_tracking: ShellMediumTrackingResult,
 ) -> bool:
     checks: list[bool] = []
 
@@ -520,6 +566,10 @@ def _check_invariants(
                 checks.append(
                     float(metrics.threshold_exceeded_area) >= 0.0
                 )
+
+    for tracking in (air_tracking, water_tracking):
+        checks.append(bool(tracking.validation_passed))
+        checks.append(int(tracking.unexpected_surface_total) == 0)
 
     return all(checks)
 
@@ -648,6 +698,31 @@ def main() -> int:
             original_termination, patterned_termination,
         )
 
+    air_tracking = run_surface_classified_shell_trace(
+        shell_mesh, rays,
+        fill_medium="air",
+        outer_radius=OUTER_RADIUS,
+        wall_thickness=WALL_THICKNESS,
+        height=HEIGHT,
+        radial_tolerance=TRACE_RADIAL_TOLERANCE,
+        z_tolerance=TRACE_Z_TOLERANCE,
+        epsilon=TRACE_EPSILON,
+    )
+    water_tracking = run_surface_classified_shell_trace(
+        shell_mesh, rays,
+        fill_medium="water",
+        outer_radius=OUTER_RADIUS,
+        wall_thickness=WALL_THICKNESS,
+        height=HEIGHT,
+        radial_tolerance=TRACE_RADIAL_TOLERANCE,
+        z_tolerance=TRACE_Z_TOLERANCE,
+        epsilon=TRACE_EPSILON,
+    )
+    _print_medium_tracking_block(
+        air_tracking=air_tracking,
+        water_tracking=water_tracking,
+    )
+
     invariant_cases = []
     for medium in FILL_MEDIA:
         original_case, patterned_case = cases[medium]
@@ -664,6 +739,8 @@ def main() -> int:
         displaced_result.displaced_mesh,
         shell_mesh,
         invariant_cases,
+        air_tracking=air_tracking,
+        water_tracking=water_tracking,
     )
     print(f"Invariants: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1

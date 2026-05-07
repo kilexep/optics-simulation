@@ -58,4 +58,9 @@ def test_demo_script_runs_and_invariants_pass() -> None:
     assert "Measurement tolerance passes:" in result.stdout
     assert "Relaxed passes:" in result.stdout
     assert "Mixed candidates:" in result.stdout
+    assert "Medium tracking validation passed:" in result.stdout
+    assert "Unexpected surface count:" in result.stdout
+    assert "Trace epsilon:" in result.stdout
+    assert "Validated side y range:" in result.stdout
+    assert "Validated side z range:" in result.stdout
     assert "Invariants: PASS" in result.stdout

@@ -56,4 +56,9 @@ def test_demo_script_runs_and_invariants_pass() -> None:
     assert "Delta threshold exceeded count:" in result.stdout
     assert "Mesh vertices mutated: False" in result.stdout
     assert "Mesh faces mutated: False" in result.stdout
+    assert "Medium tracking validation passed:" in result.stdout
+    assert "Unexpected surface count:" in result.stdout
+    assert "Trace epsilon:" in result.stdout
+    assert "Validated side y range:" in result.stdout
+    assert "Validated side z range:" in result.stdout
     assert "Invariants: PASS" in result.stdout

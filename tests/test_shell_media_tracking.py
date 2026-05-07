@@ -500,3 +500,83 @@ def test_no_file_output(
     )
     after = set(os.listdir(tmp_path))
     assert before == after
+
+
+# -----------------------------------------------------------------
+# Envelope diagnostic tests
+# -----------------------------------------------------------------
+
+_PARAXIAL_Y_RANGE = (-25.0, 25.0)
+_PARAXIAL_Z_RANGE = (-50.0, 50.0)
+_WIDE_Y_RANGE = (-50.0, 50.0)
+_WIDE_Z_RANGE = (-70.0, 70.0)
+
+
+def test_paraxial_envelope_validates_for_air() -> None:
+    mesh = _build_shell()
+    rays = _build_side_incidence_rays(
+        origin_x=100.0,
+        y_range=_PARAXIAL_Y_RANGE,
+        z_range=_PARAXIAL_Z_RANGE,
+        ny=11, nz=11,
+    )
+    out = run_surface_classified_shell_trace(
+        mesh, rays,
+        fill_medium="air",
+        outer_radius=_OUTER_RADIUS,
+        wall_thickness=_WALL_THICKNESS,
+        height=_HEIGHT,
+        radial_tolerance=_TRACE_RADIAL_TOL,
+        epsilon=_TRACE_EPSILON,
+    )
+    assert out.validation_passed is True
+    assert out.unexpected_surface_total == 0
+
+
+def test_paraxial_envelope_validates_for_water() -> None:
+    mesh = _build_shell()
+    rays = _build_side_incidence_rays(
+        origin_x=100.0,
+        y_range=_PARAXIAL_Y_RANGE,
+        z_range=_PARAXIAL_Z_RANGE,
+        ny=11, nz=11,
+    )
+    out = run_surface_classified_shell_trace(
+        mesh, rays,
+        fill_medium="water",
+        outer_radius=_OUTER_RADIUS,
+        wall_thickness=_WALL_THICKNESS,
+        height=_HEIGHT,
+        radial_tolerance=_TRACE_RADIAL_TOL,
+        epsilon=_TRACE_EPSILON,
+    )
+    assert out.validation_passed is True
+    assert out.unexpected_surface_total == 0
+
+
+def test_wide_envelope_runs_without_raising() -> None:
+    mesh = _build_shell()
+    rays = _build_side_incidence_rays(
+        origin_x=100.0,
+        y_range=_WIDE_Y_RANGE,
+        z_range=_WIDE_Z_RANGE,
+        ny=11, nz=11,
+    )
+    # The wide envelope is a diagnostic case; we only require the
+    # wrapper to run, return a valid result, and report a
+    # non-negative unexpected count. We do NOT require the
+    # validation to fail (whether it fails depends on whether
+    # grazing rays TIR or transmit).
+    for fill in ("air", "water"):
+        out = run_surface_classified_shell_trace(
+            mesh, rays,
+            fill_medium=fill,
+            outer_radius=_OUTER_RADIUS,
+            wall_thickness=_WALL_THICKNESS,
+            height=_HEIGHT,
+            radial_tolerance=_TRACE_RADIAL_TOL,
+            epsilon=_TRACE_EPSILON,
+        )
+        assert int(out.unexpected_surface_total) >= 0
+        assert int(out.final_ray_count) >= 0
+        assert int(out.final_ray_count) <= int(rays.ray_count)

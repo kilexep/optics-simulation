@@ -8,7 +8,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEMO_SCRIPT = (
     REPO_ROOT
     / "examples"
-    / "run_shell_fill_state_thermal_risk_demo.py"
+    / "run_shell_medium_tracking_envelope_demo.py"
 )
 
 
@@ -35,24 +35,17 @@ def test_demo_script_runs_and_invariants_pass() -> None:
         f"demo exited {result.returncode}\nstdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
-    assert "Shell fill-state thermal risk demo" in result.stdout
+    assert "Shell medium tracking envelope demo" in result.stdout
     assert (
-        "Synthetic shell/fill-state optical-to-thermal smoke check"
+        "Synthetic shell medium-tracking validity smoke check"
         in result.stdout
     )
-    assert "Side-incidence ray grid" in result.stdout
-    assert "Solid cylinder" in result.stdout
-    assert "Empty shell" in result.stdout
-    assert "Water-filled shell" in result.stdout
-    assert "Solid max temperature:" in result.stdout
-    assert "Empty shell max temperature:" in result.stdout
-    assert "Water shell max temperature:" in result.stdout
-    assert "Solid threshold exceeded count:" in result.stdout
-    assert "Empty shell threshold exceeded count:" in result.stdout
-    assert "Water shell threshold exceeded count:" in result.stdout
-    assert "Medium tracking validation passed:" in result.stdout
+    assert "Paraxial envelope" in result.stdout
+    assert "Wide envelope" in result.stdout
+    assert "epsilon" in result.stdout
+    assert "Fill medium: air" in result.stdout
+    assert "Fill medium: water" in result.stdout
+    assert "Validation passed:" in result.stdout
     assert "Unexpected surface count:" in result.stdout
-    assert "Trace epsilon:" in result.stdout
-    assert "Validated side y range:" in result.stdout
-    assert "Validated side z range:" in result.stdout
+    assert "Envelope diagnostic" in result.stdout
     assert "Invariants: PASS" in result.stdout
