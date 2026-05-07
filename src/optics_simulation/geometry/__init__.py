@@ -1,4 +1,10 @@
 """Geometry package: STL/mesh I/O, quality reporting, and surface coordinates."""
+from optics_simulation.geometry.bottle_readiness import (
+    BottleMeshReadinessReport,
+    CylindricalFitReport,
+    compute_bottle_mesh_readiness_report,
+    compute_cylindrical_fit_report,
+)
 from optics_simulation.geometry.mesh_io import (
     GeometryError,
     MeshLoadError,
@@ -28,6 +34,8 @@ from optics_simulation.geometry.hit_coordinates import (
 )
 
 __all__ = [
+    "BottleMeshReadinessReport",
+    "CylindricalFitReport",
     "GeometryError",
     "HitSurfaceCoordinates",
     "MeshLoadError",
@@ -35,6 +43,8 @@ __all__ = [
     "SurfaceCoordinateMap",
     "SyntheticShellVertexMasks",
     "classify_synthetic_shell_vertices",
+    "compute_bottle_mesh_readiness_report",
+    "compute_cylindrical_fit_report",
     "create_mesh_quality_report",
     "create_subdivided_synthetic_bottle_body",
     "create_subdivided_synthetic_bottle_shell",
