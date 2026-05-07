@@ -171,6 +171,7 @@ def compute_vertex_displacement_amounts(
     *,
     active_threshold: float = 0.0,
     exclude_v_boundary_epsilon: float = 0.0,
+    include_mask: np.ndarray | None = None,
 ) -> VertexPatternDisplacement:
     """Compute per-vertex Gaussian-pattern depth amounts (no mesh edit).
 
@@ -194,6 +195,20 @@ def compute_vertex_displacement_amounts(
         Must satisfy ``0 <= eps < 0.5``. Real STL geometries
         should usually drive cap exclusion via face-group masks
         instead; this parameter is intentionally minimal.
+    include_mask
+        Optional per-vertex boolean mask of shape
+        ``(surface_map.point_count,)``. When supplied, vertices
+        with ``include_mask == False`` have their
+        ``normalized_depth`` (and therefore ``physical_depth``)
+        zeroed out before ``active_mask`` is computed, so
+        ``active_mask`` is also ``False`` on those vertices.
+        Boundary exclusion via ``exclude_v_boundary_epsilon`` is
+        applied independently. The intended synthetic-shell use is
+        ``include_mask =
+        SyntheticShellVertexMasks.outer_lateral_interior_mask`` so
+        that pattern displacement applies only to the outer
+        lateral interior vertices of a shell fixture. ``None``
+        (default) preserves the prior whole-mesh behavior.
 
     Raises
     ------
@@ -201,8 +216,10 @@ def compute_vertex_displacement_amounts(
         On invalid inputs (wrong types, empty mesh, point-count
         mismatch, surface_map shape inconsistencies, negative
         ``active_threshold``, ``exclude_v_boundary_epsilon`` out of
-        ``[0, 0.5)``, or non-finite / out-of-range ``surface_map``
-        coordinates).
+        ``[0, 0.5)``, non-finite / out-of-range ``surface_map``
+        coordinates, ``include_mask`` shape mismatch, NaN / inf in
+        an ``include_mask``, or an ``include_mask`` whose dtype is
+        neither bool nor numeric-castable-to-bool).
     """
     if not isinstance(mesh, trimesh.Trimesh):
         raise PatternError(
@@ -245,6 +262,34 @@ def compute_vertex_displacement_amounts(
             f"exclude_v_boundary_epsilon must be in [0, 0.5); got {eps}"
         )
 
+    include_bool: np.ndarray | None = None
+    if include_mask is not None:
+        try:
+            include_arr = np.asarray(include_mask)
+        except (TypeError, ValueError) as exc:
+            raise PatternError(
+                f"include_mask must be convertible to a 1-D array; "
+                f"got {type(include_mask).__name__}"
+            ) from exc
+        if include_arr.shape != (vertex_count,):
+            raise PatternError(
+                f"include_mask must have shape ({vertex_count},); "
+                f"got {include_arr.shape}"
+            )
+        if include_arr.dtype == bool:
+            include_bool = include_arr.astype(bool, copy=True)
+        elif np.issubdtype(include_arr.dtype, np.number):
+            if not np.isfinite(include_arr).all():
+                raise PatternError(
+                    "include_mask contains NaN or inf values"
+                )
+            include_bool = include_arr.astype(bool, copy=True)
+        else:
+            raise PatternError(
+                f"include_mask must be bool or numeric castable to "
+                f"bool; got dtype={include_arr.dtype}"
+            )
+
     u_arr = np.asarray(surface_map.u, dtype=float)
     v_arr = np.asarray(surface_map.v, dtype=float)
 
@@ -255,6 +300,9 @@ def compute_vertex_displacement_amounts(
     if eps > 0.0:
         boundary_mask = (v_arr <= eps) | (v_arr >= 1.0 - eps)
         normalized = np.where(boundary_mask, 0.0, normalized)
+
+    if include_bool is not None:
+        normalized = np.where(include_bool, normalized, 0.0)
 
     max_depth = float(pattern.max_depth)
     physical = normalized * max_depth

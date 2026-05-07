@@ -384,3 +384,145 @@ def test_descriptor_round_trip_pattern_works_in_compute() -> None:
         atol=1e-12,
     )
     assert np.array_equal(result_round.active_mask, result_orig.active_mask)
+
+
+def test_include_mask_restricts_active_vertices() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    n = len(mesh.vertices)
+    include = np.zeros(n, dtype=bool)
+    include[: n // 2] = True
+
+    full = compute_vertex_displacement_amounts(
+        mesh, sm, pattern, active_threshold=0.0,
+    )
+    masked = compute_vertex_displacement_amounts(
+        mesh, sm, pattern, active_threshold=0.0,
+        include_mask=include,
+    )
+    assert int(masked.active_mask.sum()) <= int(full.active_mask.sum())
+    assert int(masked.active_mask.sum()) > 0
+    assert not bool(masked.active_mask[~include].any())
+
+
+def test_include_mask_zeros_normalized_depth_outside() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    n = len(mesh.vertices)
+    include = np.zeros(n, dtype=bool)
+    include[: n // 2] = True
+    result = compute_vertex_displacement_amounts(
+        mesh, sm, pattern, include_mask=include,
+    )
+    assert float(np.abs(result.normalized_depth[~include]).max()) == 0.0
+
+
+def test_include_mask_zeros_physical_depth_outside() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    n = len(mesh.vertices)
+    include = np.zeros(n, dtype=bool)
+    include[: n // 2] = True
+    result = compute_vertex_displacement_amounts(
+        mesh, sm, pattern, include_mask=include,
+    )
+    assert float(np.abs(result.physical_depth[~include]).max()) == 0.0
+
+
+def test_include_mask_active_outside_is_false() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    n = len(mesh.vertices)
+    include = np.zeros(n, dtype=bool)
+    include[: n // 2] = True
+    result = compute_vertex_displacement_amounts(
+        mesh, sm, pattern, include_mask=include,
+    )
+    assert bool(np.array_equal(
+        result.active_mask & ~include, np.zeros(n, dtype=bool),
+    ))
+
+
+def test_include_mask_invalid_shape_raises() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    n = len(mesh.vertices)
+    bad = np.ones(n + 1, dtype=bool)
+    with pytest.raises(PatternError, match="include_mask"):
+        compute_vertex_displacement_amounts(
+            mesh, sm, pattern, include_mask=bad,
+        )
+    with pytest.raises(PatternError, match="include_mask"):
+        compute_vertex_displacement_amounts(
+            mesh, sm, pattern,
+            include_mask=np.ones((n, 2), dtype=bool),
+        )
+
+
+def test_include_mask_nonfinite_raises() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    n = len(mesh.vertices)
+    bad_float = np.ones(n, dtype=float)
+    bad_float[0] = np.nan
+    with pytest.raises(PatternError, match="include_mask"):
+        compute_vertex_displacement_amounts(
+            mesh, sm, pattern, include_mask=bad_float,
+        )
+
+    bad_inf = np.ones(n, dtype=float)
+    bad_inf[1] = np.inf
+    with pytest.raises(PatternError, match="include_mask"):
+        compute_vertex_displacement_amounts(
+            mesh, sm, pattern, include_mask=bad_inf,
+        )
+
+
+def test_include_mask_non_boollike_dtype_raises() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    n = len(mesh.vertices)
+    bad = np.array(["x"] * n)
+    with pytest.raises(PatternError, match="include_mask"):
+        compute_vertex_displacement_amounts(
+            mesh, sm, pattern, include_mask=bad,
+        )
+
+
+def test_include_mask_none_preserves_prior_behavior() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    base = compute_vertex_displacement_amounts(mesh, sm, pattern)
+    via_none = compute_vertex_displacement_amounts(
+        mesh, sm, pattern, include_mask=None,
+    )
+    assert np.array_equal(
+        base.normalized_depth, via_none.normalized_depth,
+    )
+    assert np.array_equal(
+        base.physical_depth, via_none.physical_depth,
+    )
+    assert np.array_equal(base.active_mask, via_none.active_mask)
+
+
+def test_include_mask_works_together_with_v_boundary_epsilon() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    n = len(mesh.vertices)
+    include = np.zeros(n, dtype=bool)
+    include[: n // 2] = True
+    eps = 0.05
+    result = compute_vertex_displacement_amounts(
+        mesh, sm, pattern,
+        exclude_v_boundary_epsilon=eps,
+        include_mask=include,
+    )
+    v = np.asarray(sm.v, dtype=float)
+    boundary = (v <= eps) | (v >= 1.0 - eps)
+    assert float(np.abs(result.normalized_depth[~include]).max()) == 0.0
+    assert float(np.abs(result.normalized_depth[boundary]).max()) == 0.0
+    assert not bool(result.active_mask[~include].any())
+    assert not bool(result.active_mask[boundary].any())
+
+
+def test_include_mask_accepts_int_dtype_castable_to_bool() -> None:
+    mesh, sm, pattern = _make_synthetic_setup()
+    n = len(mesh.vertices)
+    include_int = np.zeros(n, dtype=np.int8)
+    include_int[: n // 2] = 1
+    result = compute_vertex_displacement_amounts(
+        mesh, sm, pattern, include_mask=include_int,
+    )
+    include_bool = include_int.astype(bool)
+    assert float(np.abs(result.normalized_depth[~include_bool]).max()) == 0.0

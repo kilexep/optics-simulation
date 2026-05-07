@@ -16,6 +16,8 @@ from optics_simulation.geometry.surface_coordinates import (
     point_to_normalized_cylindrical,
 )
 from optics_simulation.geometry.synthetic_bottle import (
+    SyntheticShellVertexMasks,
+    classify_synthetic_shell_vertices,
     create_subdivided_synthetic_bottle_body,
     create_subdivided_synthetic_bottle_shell,
     create_synthetic_bottle_body,
@@ -31,6 +33,8 @@ __all__ = [
     "MeshLoadError",
     "MeshQualityReport",
     "SurfaceCoordinateMap",
+    "SyntheticShellVertexMasks",
+    "classify_synthetic_shell_vertices",
     "create_mesh_quality_report",
     "create_subdivided_synthetic_bottle_body",
     "create_subdivided_synthetic_bottle_shell",
