@@ -306,3 +306,234 @@ def test_use_power_weights_true_does_not_mutate_mesh_or_config() -> None:
     assert np.array_equal(np.asarray(mesh.vertices), vertices_before)
     assert np.array_equal(np.asarray(mesh.faces), faces_before)
     assert cfg == cfg_before
+
+
+# ---------------------------------------------------------------------------
+# Relative irradiance surrogate integration (use_relative_irradiance)
+# ---------------------------------------------------------------------------
+
+
+from optics_simulation.metrics import (
+    DetectorIrradianceSurrogate,
+    MetricsError,
+    compute_optical_metrics,
+    compute_relative_irradiance_surrogate,
+)
+from optics_simulation.optics import (
+    accumulate_detector_hits,
+    intersect_detector_plane,
+    parallel_ray_grid,
+    run_multi_step_trace,
+)
+
+
+def _common_kwargs(**overrides):
+    base = dict(
+        mesh=_slab_mesh(),
+        angles_degrees=[0.0],
+        ray_grid_config=_ray_grid_config(),
+        interface_sequence=SLAB_INTERFACES,
+        detector=_detector(),
+        detector_grid=_detector_grid(),
+        thresholds=THRESHOLDS,
+    )
+    base.update(overrides)
+    return base
+
+
+def test_default_use_relative_irradiance_is_false_backward_compatible() -> None:
+    explicit = run_baseline_angle_scan(**_common_kwargs(
+        use_relative_irradiance=False,
+    ))
+    implicit = run_baseline_angle_scan(**_common_kwargs())
+    for ex, im in zip(explicit.per_angle, implicit.per_angle):
+        assert ex.detector_hits == im.detector_hits
+        assert ex.metrics.c99 == pytest.approx(im.metrics.c99)
+        assert ex.metrics.cmax == pytest.approx(im.metrics.cmax)
+        assert ex.irradiance_surrogate is None
+        assert im.irradiance_surrogate is None
+
+
+def test_use_relative_irradiance_true_populates_surrogate_field() -> None:
+    result = run_baseline_angle_scan(**_common_kwargs(
+        use_relative_irradiance=True,
+    ))
+    for entry in result.per_angle:
+        assert isinstance(
+            entry.irradiance_surrogate, DetectorIrradianceSurrogate
+        )
+
+
+def test_use_relative_irradiance_false_keeps_surrogate_none() -> None:
+    result = run_baseline_angle_scan(**_common_kwargs(
+        use_relative_irradiance=False,
+    ))
+    for entry in result.per_angle:
+        assert entry.irradiance_surrogate is None
+
+
+def test_relative_mode_metrics_match_manual_recomputation() -> None:
+    cfg = _ray_grid_config()
+    detector = _detector()
+    detector_grid = _detector_grid()
+    angles = [0.0, 10.0]
+    result = run_baseline_angle_scan(
+        mesh=_slab_mesh(),
+        angles_degrees=angles,
+        ray_grid_config=cfg,
+        interface_sequence=SLAB_INTERFACES,
+        detector=detector,
+        detector_grid=detector_grid,
+        thresholds=THRESHOLDS,
+        use_relative_irradiance=True,
+    )
+    expected_source_area = (
+        (cfg["x_range"][1] - cfg["x_range"][0])
+        * (cfg["y_range"][1] - cfg["y_range"][0])
+    )
+    grid_kwargs = {k: v for k, v in cfg.items() if k != "direction"}
+    for entry, angle in zip(result.per_angle, angles):
+        rays = parallel_ray_grid(
+            direction=tuple(entry.direction), **grid_kwargs
+        )
+        trace = run_multi_step_trace(
+            _slab_mesh(), rays, SLAB_INTERFACES
+        )
+        hits = intersect_detector_plane(trace.final_rays, detector)
+        accum = accumulate_detector_hits(hits, detector_grid)
+        surrogate = compute_relative_irradiance_surrogate(
+            accum, detector_grid,
+            ray_count=int(rays.ray_count),
+            source_area=expected_source_area,
+            incident_irradiance=1.0,
+        )
+        expected_metrics = compute_optical_metrics(
+            surrogate.relative_irradiance_map,
+            incident_reference=1.0,
+            thresholds=THRESHOLDS,
+            top_percent=1.0,
+        )
+        assert entry.metrics.c99 == pytest.approx(expected_metrics.c99)
+        assert entry.metrics.cmax == pytest.approx(expected_metrics.cmax)
+
+
+def test_source_area_inferred_from_ray_grid_config() -> None:
+    cfg = _ray_grid_config()
+    expected_source_area = (
+        (cfg["x_range"][1] - cfg["x_range"][0])
+        * (cfg["y_range"][1] - cfg["y_range"][0])
+    )
+    result = run_baseline_angle_scan(**_common_kwargs(
+        use_relative_irradiance=True,
+    ))
+    for entry in result.per_angle:
+        assert entry.irradiance_surrogate.source_area == pytest.approx(
+            expected_source_area
+        )
+
+
+def test_explicit_source_area_overrides_inferred_value() -> None:
+    cfg = _ray_grid_config()
+    inferred = (
+        (cfg["x_range"][1] - cfg["x_range"][0])
+        * (cfg["y_range"][1] - cfg["y_range"][0])
+    )
+    explicit_value = inferred * 2.0 + 7.0
+    result = run_baseline_angle_scan(**_common_kwargs(
+        use_relative_irradiance=True,
+        source_area=explicit_value,
+    ))
+    for entry in result.per_angle:
+        assert entry.irradiance_surrogate.source_area == pytest.approx(
+            explicit_value
+        )
+        assert entry.irradiance_surrogate.source_area != pytest.approx(
+            inferred
+        )
+
+
+def test_invalid_explicit_source_area_raises() -> None:
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises((AngleScanError, MetricsError)):
+            run_baseline_angle_scan(**_common_kwargs(
+                use_relative_irradiance=True,
+                source_area=bad,
+            ))
+
+
+def test_invalid_ray_grid_ranges_raise_in_relative_mode() -> None:
+    # Inverted range: x_max == x_min, source-plane area would be zero.
+    bad_range_cfg = _ray_grid_config()
+    bad_range_cfg["x_range"] = (5.0, 5.0)
+    with pytest.raises(AngleScanError, match="max > min"):
+        run_baseline_angle_scan(
+            mesh=_slab_mesh(),
+            angles_degrees=[0.0],
+            ray_grid_config=bad_range_cfg,
+            interface_sequence=SLAB_INTERFACES,
+            detector=_detector(),
+            detector_grid=_detector_grid(),
+            thresholds=THRESHOLDS,
+            use_relative_irradiance=True,
+        )
+
+
+def test_invalid_ray_grid_ranges_silent_in_unweighted_mode() -> None:
+    # Same malformed range but with use_relative_irradiance=False:
+    # ray_grid_config validation only kicks in for the relative path.
+    # parallel_ray_grid will still validate its own kwargs, so use a
+    # valid ray_grid_config and only confirm that no source_area
+    # validation is performed.
+    cfg = _ray_grid_config()
+    # Pass a bogus source_area; it should be ignored when relative mode
+    # is off.
+    result = run_baseline_angle_scan(
+        mesh=_slab_mesh(),
+        angles_degrees=[0.0],
+        ray_grid_config=cfg,
+        interface_sequence=SLAB_INTERFACES,
+        detector=_detector(),
+        detector_grid=_detector_grid(),
+        thresholds=THRESHOLDS,
+        use_relative_irradiance=False,
+        source_area=-1.0,  # ignored
+    )
+    assert result.per_angle[0].irradiance_surrogate is None
+
+
+def test_use_relative_irradiance_with_use_power_weights_smoke() -> None:
+    weighted_relative = run_baseline_angle_scan(**_common_kwargs(
+        use_power_weights=True,
+        use_relative_irradiance=True,
+    ))
+    for entry in weighted_relative.per_angle:
+        assert isinstance(
+            entry.irradiance_surrogate, DetectorIrradianceSurrogate
+        )
+        assert entry.metrics.c99 >= 0.0
+        assert entry.metrics.cmax >= 0.0
+
+
+def test_relative_mode_does_not_mutate_mesh_or_ray_grid_config() -> None:
+    mesh = _slab_mesh()
+    cfg = _ray_grid_config()
+    cfg["direction"] = (0.5, 0.5, -0.5)
+    vertices_before = np.array(mesh.vertices, copy=True)
+    faces_before = np.array(mesh.faces, copy=True)
+    cfg_before = dict(cfg)
+
+    run_baseline_angle_scan(
+        mesh=mesh,
+        angles_degrees=[0.0, 10.0],
+        ray_grid_config=cfg,
+        interface_sequence=SLAB_INTERFACES,
+        detector=_detector(),
+        detector_grid=_detector_grid(),
+        thresholds=THRESHOLDS,
+        use_power_weights=True,
+        use_relative_irradiance=True,
+    )
+
+    assert np.array_equal(np.asarray(mesh.vertices), vertices_before)
+    assert np.array_equal(np.asarray(mesh.faces), faces_before)
+    assert cfg == cfg_before

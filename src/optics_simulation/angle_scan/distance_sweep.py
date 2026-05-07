@@ -47,9 +47,16 @@ import trimesh
 
 from optics_simulation.angle_scan.baseline import (
     AngleScanError,
+    _infer_source_area_from_ray_grid_config,
+    _validate_source_area_value,
     direction_from_incident_angle,
 )
-from optics_simulation.metrics import OpticalMetrics, compute_optical_metrics
+from optics_simulation.metrics import (
+    DetectorIrradianceSurrogate,
+    OpticalMetrics,
+    compute_optical_metrics,
+    compute_relative_irradiance_surrogate,
+)
 from optics_simulation.optics import (
     accumulate_detector_hits,
     create_detector_grid,
@@ -70,6 +77,7 @@ class PerAngleDistanceResult:
     detector_hits: int
     metrics: OpticalMetrics
     termination_reason: str
+    irradiance_surrogate: DetectorIrradianceSurrogate | None = None
 
 
 @dataclass(frozen=True)
@@ -162,6 +170,9 @@ def run_angle_distance_sweep(
     thresholds: tuple[float, ...] = (2.0, 5.0, 10.0),
     top_percent: float = 1.0,
     use_power_weights: bool = False,
+    use_relative_irradiance: bool = False,
+    source_area: float | None = None,
+    incident_irradiance: float = 1.0,
 ) -> AngleDistanceScanResult:
     """Run the synthetic-mesh optical pipeline over angles x detector z.
 
@@ -240,6 +251,25 @@ def run_angle_distance_sweep(
     calibration** (no pixel-area normalization, no spectral
     integration, no polarization, no dispersion, no reflected
     branches, no source intensity calibration).
+
+    Relative irradiance surrogate
+    -----------------------------
+    ``use_relative_irradiance`` (default ``False``) controls whether
+    the per ``(angle, detector_z)`` ``OpticalMetrics`` is computed
+    on the raw ``accumulation.weight_map`` (``False``) or on the
+    relative-irradiance map produced by
+    :func:`compute_relative_irradiance_surrogate` (``True``). Uses
+    source-plane area, ray count, and detector pixel area to compute
+    a relative irradiance surrogate; **still not a calibrated
+    W/m^2 measurement**. ``source_area`` is read from the caller
+    or, if ``None``, inferred once from
+    ``ray_grid_config["x_range"] / ["y_range"]`` and reused across
+    every ``(angle, detector_z)`` entry.
+    ``PerAngleDistanceResult.irradiance_surrogate`` is ``None`` in
+    the ``False`` path and a populated
+    :class:`DetectorIrradianceSurrogate` in the ``True`` path. The
+    optical-metric call uses ``incident_reference=1.0`` in the
+    ``True`` path because the relative map is already normalized.
     """
     angle_list = _validated_finite_floats(
         angles_degrees, name="angles_degrees"
@@ -260,6 +290,15 @@ def run_angle_distance_sweep(
 
     grid_kwargs = dict(ray_grid_config)
     grid_kwargs.pop("direction", None)
+
+    source_area_value: float | None = None
+    if use_relative_irradiance:
+        if source_area is None:
+            source_area_value = _infer_source_area_from_ray_grid_config(
+                ray_grid_config
+            )
+        else:
+            source_area_value = _validate_source_area_value(source_area)
 
     per_list: list[PerAngleDistanceResult] = []
     cx, cy = center_xy
@@ -287,12 +326,28 @@ def run_angle_distance_sweep(
             accum = accumulate_detector_hits(
                 hits, detector_grid, weights=weights_for_accum
             )
-            metrics = compute_optical_metrics(
-                accum.weight_map,
-                incident_reference=incident_reference,
-                thresholds=thresholds,
-                top_percent=top_percent,
-            )
+            if use_relative_irradiance:
+                surrogate = compute_relative_irradiance_surrogate(
+                    accum,
+                    detector_grid,
+                    ray_count=int(rays.ray_count),
+                    source_area=source_area_value,
+                    incident_irradiance=incident_irradiance,
+                )
+                metrics = compute_optical_metrics(
+                    surrogate.relative_irradiance_map,
+                    incident_reference=1.0,
+                    thresholds=thresholds,
+                    top_percent=top_percent,
+                )
+            else:
+                surrogate = None
+                metrics = compute_optical_metrics(
+                    accum.weight_map,
+                    incident_reference=incident_reference,
+                    thresholds=thresholds,
+                    top_percent=top_percent,
+                )
             per_list.append(
                 PerAngleDistanceResult(
                     angle_degrees=float(angle),
@@ -303,6 +358,7 @@ def run_angle_distance_sweep(
                     detector_hits=int(accum.total_hits),
                     metrics=metrics,
                     termination_reason=trace.termination_reason,
+                    irradiance_surrogate=surrogate,
                 )
             )
 

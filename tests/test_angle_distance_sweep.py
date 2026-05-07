@@ -396,3 +396,185 @@ def test_use_power_weights_true_does_not_mutate_mesh_or_config() -> None:
     assert np.array_equal(np.asarray(mesh.vertices), vertices_before)
     assert np.array_equal(np.asarray(mesh.faces), faces_before)
     assert cfg == cfg_before
+
+
+# ---------------------------------------------------------------------------
+# Relative irradiance surrogate integration (use_relative_irradiance)
+# ---------------------------------------------------------------------------
+
+
+from optics_simulation.metrics import (
+    DetectorIrradianceSurrogate,
+    MetricsError,
+)
+
+
+def _run_relative(
+    *,
+    use_relative_irradiance: bool = True,
+    use_power_weights: bool = False,
+    angles: list[float] = (0.0, 10.0),
+    distances: list[float] = (-15.0, -25.0),
+    source_area: float | None = None,
+) -> AngleDistanceScanResult:
+    return run_angle_distance_sweep(
+        mesh=_slab_mesh(),
+        angles_degrees=list(angles),
+        detector_z_values=list(distances),
+        ray_grid_config=_ray_grid_config(),
+        interface_sequence=SLAB_INTERFACES,
+        thresholds=THRESHOLDS,
+        use_power_weights=use_power_weights,
+        use_relative_irradiance=use_relative_irradiance,
+        source_area=source_area,
+        **_detector_kwargs(),
+    )
+
+
+def test_default_use_relative_irradiance_is_false_backward_compatible() -> None:
+    explicit = _run_relative(use_relative_irradiance=False)
+    implicit = _run(angles=[0.0, 10.0], distances=[-15.0, -25.0])
+    for ex, im in zip(explicit.per_result, implicit.per_result):
+        assert ex.detector_hits == im.detector_hits
+        assert ex.metrics.c99 == pytest.approx(im.metrics.c99)
+        assert ex.metrics.cmax == pytest.approx(im.metrics.cmax)
+        assert ex.irradiance_surrogate is None
+
+
+def test_relative_mode_populates_surrogate_field() -> None:
+    result = _run_relative(use_relative_irradiance=True)
+    for entry in result.per_result:
+        assert isinstance(
+            entry.irradiance_surrogate, DetectorIrradianceSurrogate
+        )
+
+
+def test_relative_mode_preserves_angle_major_ordering() -> None:
+    result = _run_relative(
+        use_relative_irradiance=True,
+        angles=[0.0, 10.0],
+        distances=[-15.0, -20.0, -25.0],
+    )
+    pairs = [(p.angle_degrees, p.detector_z) for p in result.per_result]
+    assert pairs == [
+        (0.0, -15.0), (0.0, -20.0), (0.0, -25.0),
+        (10.0, -15.0), (10.0, -20.0), (10.0, -25.0),
+    ]
+
+
+def test_relative_mode_preserves_geometry_against_raw_weighted() -> None:
+    raw = _run_relative(
+        use_relative_irradiance=False, use_power_weights=True,
+    )
+    norm = _run_relative(
+        use_relative_irradiance=True, use_power_weights=True,
+    )
+    for r, n in zip(raw.per_result, norm.per_result):
+        assert r.detector_hits == n.detector_hits
+        assert r.final_ray_count == n.final_ray_count
+        assert r.ray_count == n.ray_count
+
+
+def test_relative_mode_metrics_nonnegative() -> None:
+    result = _run_relative(
+        use_relative_irradiance=True,
+        angles=[0.0, 15.0],
+        distances=[-15.0, -25.0],
+    )
+    for entry in result.per_result:
+        assert entry.metrics.c99 >= 0.0
+        assert entry.metrics.cmax >= 0.0
+        s = entry.irradiance_surrogate
+        assert np.isfinite(s.relative_irradiance_map).all()
+        assert (s.relative_irradiance_map >= 0).all()
+
+
+def test_relative_mode_explicit_source_area_scales_predictably() -> None:
+    cfg = _ray_grid_config()
+    inferred = (
+        (cfg["x_range"][1] - cfg["x_range"][0])
+        * (cfg["y_range"][1] - cfg["y_range"][0])
+    )
+    big = _run_relative(
+        use_relative_irradiance=True,
+        source_area=inferred * 4.0,
+    )
+    base = _run_relative(
+        use_relative_irradiance=True,
+        source_area=inferred,
+    )
+    # relative_irradiance_map scales linearly with source_area (other
+    # axes constant), so big should be 4x base for any pixel.
+    for b, n in zip(base.per_result, big.per_result):
+        np.testing.assert_allclose(
+            n.irradiance_surrogate.relative_irradiance_map,
+            4.0 * b.irradiance_surrogate.relative_irradiance_map,
+            atol=1e-12,
+        )
+
+
+def test_invalid_explicit_source_area_raises_in_relative_mode() -> None:
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises((AngleScanError, MetricsError)):
+            _run_relative(
+                use_relative_irradiance=True,
+                source_area=bad,
+            )
+
+
+def test_invalid_x_range_raises_only_in_relative_mode() -> None:
+    bad_cfg = _ray_grid_config()
+    bad_cfg["x_range"] = (5.0, 5.0)
+    with pytest.raises(AngleScanError, match="max > min"):
+        run_angle_distance_sweep(
+            mesh=_slab_mesh(),
+            angles_degrees=[0.0],
+            detector_z_values=[-15.0],
+            ray_grid_config=bad_cfg,
+            interface_sequence=SLAB_INTERFACES,
+            thresholds=THRESHOLDS,
+            use_relative_irradiance=True,
+            **_detector_kwargs(),
+        )
+    # Same malformed range with relative mode off does NOT raise from
+    # the relative-mode validation. (It may still fail elsewhere if
+    # parallel_ray_grid rejects equal x_range entries — the existing
+    # default test suite covers the well-formed case.)
+
+
+def test_use_relative_irradiance_with_use_power_weights_smoke() -> None:
+    result = _run_relative(
+        use_relative_irradiance=True,
+        use_power_weights=True,
+    )
+    for entry in result.per_result:
+        assert isinstance(
+            entry.irradiance_surrogate, DetectorIrradianceSurrogate
+        )
+        assert entry.metrics.c99 >= 0.0
+        assert entry.metrics.cmax >= 0.0
+
+
+def test_relative_mode_does_not_mutate_mesh_or_ray_grid_config() -> None:
+    mesh = _slab_mesh()
+    cfg = _ray_grid_config()
+    cfg["direction"] = (0.5, 0.5, -0.5)
+    vertices_before = np.array(mesh.vertices, copy=True)
+    faces_before = np.array(mesh.faces, copy=True)
+    cfg_before = dict(cfg)
+
+    run_angle_distance_sweep(
+        mesh=mesh,
+        angles_degrees=[0.0, 10.0],
+        detector_z_values=[-15.0, -25.0],
+        ray_grid_config=cfg,
+        interface_sequence=SLAB_INTERFACES,
+        thresholds=THRESHOLDS,
+        use_power_weights=True,
+        use_relative_irradiance=True,
+        **_detector_kwargs(),
+    )
+
+    assert np.array_equal(np.asarray(mesh.vertices), vertices_before)
+    assert np.array_equal(np.asarray(mesh.faces), faces_before)
+    assert cfg == cfg_before

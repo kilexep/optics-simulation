@@ -33,7 +33,12 @@ from typing import Sequence
 import numpy as np
 import trimesh
 
-from optics_simulation.metrics import OpticalMetrics, compute_optical_metrics
+from optics_simulation.metrics import (
+    DetectorIrradianceSurrogate,
+    OpticalMetrics,
+    compute_optical_metrics,
+    compute_relative_irradiance_surrogate,
+)
 from optics_simulation.optics import (
     DetectorGrid,
     DetectorPlane,
@@ -57,6 +62,69 @@ class PerAngleResult:
     detector_hits: int
     metrics: OpticalMetrics
     termination_reason: str
+    irradiance_surrogate: DetectorIrradianceSurrogate | None = None
+
+
+def _infer_source_area_from_ray_grid_config(
+    ray_grid_config: dict,
+) -> float:
+    """Infer the source-plane area from ``ray_grid_config``.
+
+    Reads ``x_range`` and ``y_range`` from ``ray_grid_config`` and
+    returns ``(x_max - x_min) * (y_max - y_min)``. Both ranges must
+    be length-2 finite-float sequences with strictly positive width.
+    Raises :class:`AngleScanError` on any malformation. Only called
+    when ``use_relative_irradiance=True`` and ``source_area`` is not
+    explicitly provided.
+    """
+    if "x_range" not in ray_grid_config or "y_range" not in ray_grid_config:
+        raise AngleScanError(
+            "ray_grid_config must contain 'x_range' and 'y_range' to "
+            "infer source_area for use_relative_irradiance=True"
+        )
+    x_range = ray_grid_config["x_range"]
+    y_range = ray_grid_config["y_range"]
+    try:
+        x_min = float(x_range[0])
+        x_max = float(x_range[1])
+        y_min = float(y_range[0])
+        y_max = float(y_range[1])
+    except (TypeError, ValueError, IndexError) as exc:
+        raise AngleScanError(
+            f"ray_grid_config x_range and y_range must be length-2 "
+            f"finite-float sequences; got x_range={x_range!r}, "
+            f"y_range={y_range!r}"
+        ) from exc
+    if not (
+        np.isfinite(x_min) and np.isfinite(x_max)
+        and np.isfinite(y_min) and np.isfinite(y_max)
+    ):
+        raise AngleScanError(
+            f"ray_grid_config x_range and y_range must be finite; got "
+            f"x_range=({x_min}, {x_max}), y_range=({y_min}, {y_max})"
+        )
+    if x_max <= x_min or y_max <= y_min:
+        raise AngleScanError(
+            f"ray_grid_config x_range and y_range must satisfy max > "
+            f"min; got x_range=({x_min}, {x_max}), "
+            f"y_range=({y_min}, {y_max})"
+        )
+    return (x_max - x_min) * (y_max - y_min)
+
+
+def _validate_source_area_value(value: float) -> float:
+    """Validate caller-supplied ``source_area`` for relative-irradiance mode."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError) as exc:
+        raise AngleScanError(
+            f"source_area must be a finite float > 0; got {value!r}"
+        ) from exc
+    if not np.isfinite(v) or v <= 0.0:
+        raise AngleScanError(
+            f"source_area must be finite and > 0; got {v}"
+        )
+    return v
 
 
 @dataclass(frozen=True)
@@ -116,6 +184,9 @@ def run_baseline_angle_scan(
     thresholds: tuple[float, ...] = (2.0, 5.0, 10.0),
     top_percent: float = 1.0,
     use_power_weights: bool = False,
+    use_relative_irradiance: bool = False,
+    source_area: float | None = None,
+    incident_irradiance: float = 1.0,
 ) -> AngleScanResult:
     """Run the synthetic-mesh optical pipeline once per incident angle.
 
@@ -159,6 +230,32 @@ def run_baseline_angle_scan(
     (no pixel-area normalization, no spectral integration, no
     polarization, no dispersion, no reflected branches, no source
     intensity calibration).
+
+    ``use_relative_irradiance`` (default ``False``) controls whether
+    the per-angle ``OpticalMetrics`` is computed on the raw
+    ``accumulation.weight_map`` (``False``, historical behavior) or
+    on the relative-irradiance map produced by
+    :func:`compute_relative_irradiance_surrogate` (``True``). Uses
+    source-plane area, ray count, and detector pixel area to compute
+    a relative irradiance surrogate; **still not a calibrated
+    W/m^2 measurement**.
+
+    When ``use_relative_irradiance=True``, ``source_area`` is read
+    from the caller (must be finite and ``> 0``) or, if ``None``,
+    inferred from ``ray_grid_config["x_range"] / ["y_range"]`` as
+    ``(x_max - x_min) * (y_max - y_min)``. ``incident_irradiance``
+    defaults to ``1.0``; the relative-irradiance map cancels it
+    out, but ``DetectorIrradianceSurrogate.detector_power_map`` and
+    ``total_incident_power`` still scale by it. The optical-metric
+    call uses ``incident_reference=1.0`` because the relative map
+    is already normalized; the ``incident_reference`` argument
+    therefore applies only to the ``use_relative_irradiance=False``
+    path.
+
+    When ``use_relative_irradiance=False``, ``source_area`` is not
+    validated (it is ignored). ``PerAngleResult.irradiance_surrogate``
+    is ``None`` in that path and a populated
+    :class:`DetectorIrradianceSurrogate` in the relative path.
     """
     angle_list = [float(a) for a in angles_degrees]
     if not angle_list:
@@ -166,6 +263,15 @@ def run_baseline_angle_scan(
 
     grid_kwargs = dict(ray_grid_config)
     grid_kwargs.pop("direction", None)
+
+    source_area_value: float | None = None
+    if use_relative_irradiance:
+        if source_area is None:
+            source_area_value = _infer_source_area_from_ray_grid_config(
+                ray_grid_config
+            )
+        else:
+            source_area_value = _validate_source_area_value(source_area)
 
     per_angle_list: list[PerAngleResult] = []
     for angle in angle_list:
@@ -182,12 +288,28 @@ def run_baseline_angle_scan(
         accum = accumulate_detector_hits(
             hits, detector_grid, weights=weights_for_accum
         )
-        metrics = compute_optical_metrics(
-            accum.weight_map,
-            incident_reference=incident_reference,
-            thresholds=thresholds,
-            top_percent=top_percent,
-        )
+        if use_relative_irradiance:
+            surrogate = compute_relative_irradiance_surrogate(
+                accum,
+                detector_grid,
+                ray_count=int(rays.ray_count),
+                source_area=source_area_value,
+                incident_irradiance=incident_irradiance,
+            )
+            metrics = compute_optical_metrics(
+                surrogate.relative_irradiance_map,
+                incident_reference=1.0,
+                thresholds=thresholds,
+                top_percent=top_percent,
+            )
+        else:
+            surrogate = None
+            metrics = compute_optical_metrics(
+                accum.weight_map,
+                incident_reference=incident_reference,
+                thresholds=thresholds,
+                top_percent=top_percent,
+            )
         per_angle_list.append(
             PerAngleResult(
                 angle_degrees=angle,
@@ -197,6 +319,7 @@ def run_baseline_angle_scan(
                 detector_hits=int(accum.total_hits),
                 metrics=metrics,
                 termination_reason=trace.termination_reason,
+                irradiance_surrogate=surrogate,
             )
         )
 
