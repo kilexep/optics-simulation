@@ -5,6 +5,10 @@ from optics_simulation.geometry.bottle_readiness import (
     compute_bottle_mesh_readiness_report,
     compute_cylindrical_fit_report,
 )
+from optics_simulation.geometry.bottle_readiness_io import (
+    BottleMeshReadinessFileReport,
+    load_bottle_mesh_readiness_report,
+)
 from optics_simulation.geometry.mesh_io import (
     GeometryError,
     MeshLoadError,
@@ -34,6 +38,7 @@ from optics_simulation.geometry.hit_coordinates import (
 )
 
 __all__ = [
+    "BottleMeshReadinessFileReport",
     "BottleMeshReadinessReport",
     "CylindricalFitReport",
     "GeometryError",
@@ -51,6 +56,7 @@ __all__ = [
     "create_synthetic_bottle_body",
     "create_vertex_surface_coordinates",
     "hit_to_surface_coordinates",
+    "load_bottle_mesh_readiness_report",
     "load_mesh",
     "load_mesh_with_report",
     "normalize_cylindrical_coordinates",
