@@ -1,6 +1,6 @@
 """Synthetic PET-like bottle mesh fixtures.
 
-Two solid-cylinder fixtures for development and pipeline
+Three synthetic fixtures for development and pipeline
 compatibility smoke checks:
 
 - :func:`create_synthetic_bottle_body` — minimal
@@ -14,13 +14,21 @@ compatibility smoke checks:
   ``j / height_segments`` for ``j = 0..height_segments``. Suitable
   for vertex-displacement-amount smoke checks that need patterns
   to actually intersect non-boundary vertices.
+- :func:`create_subdivided_synthetic_bottle_shell` — closed hollow
+  cylindrical shell with finite ``wall_thickness`` (outer lateral
+  surface, inner lateral surface, top annular rim, bottom annular
+  rim). Suitable for synthetic empty-shell / water-filled-shell
+  side-incidence smoke checks where the optical path is a 4
+  interface ``air -> PET -> cavity -> PET -> air`` sequence.
 
-Both fixtures return :class:`trimesh.Trimesh` solid cylinder
-approximations and are **not real PET bottle STLs**: neither
-models wall thickness, an inner surface, neck, shoulder, base
-curvature, or water volume. No file I/O, no boolean operations,
-no external solid-modeling backend, and no config-file reads
-happen here.
+Synthetic shell/fill-state optical-to-thermal smoke check; **not
+a physical PET-bottle validation**. The shell is a synthetic
+cylindrical shell fixture, **not a real PET bottle**. It
+approximates wall thickness and fill-state interfaces only, and
+does **not** model neck, shoulder, base petaloid geometry,
+labels, caps, seams, or manufacturing defects. None of these
+fixtures load STL files, run boolean operations, depend on an
+external solid-modeling backend, or read config files.
 """
 from __future__ import annotations
 
@@ -209,6 +217,186 @@ def create_subdivided_synthetic_bottle_body(
         faces_list.append(
             [top_center_idx, top_ring_off + k, top_ring_off + kn]
         )
+
+    faces = np.asarray(faces_list, dtype=np.int64)
+    return trimesh.Trimesh(
+        vertices=vertices, faces=faces, process=False
+    )
+
+
+def create_subdivided_synthetic_bottle_shell(
+    *,
+    outer_radius: float = 30.0,
+    wall_thickness: float = 1.0,
+    height: float = 120.0,
+    sections: int = 96,
+    height_segments: int = 24,
+) -> trimesh.Trimesh:
+    """Build a closed hollow cylindrical shell fixture.
+
+    Synthetic shell/fill-state optical-to-thermal smoke fixture;
+    **not a physical PET-bottle validation**. The shell is a
+    z-axis aligned closed hollow cylindrical tube approximating a
+    PET wall as four panels:
+
+    - outer lateral surface at radius ``outer_radius`` (face
+      normals point radially outward),
+    - inner lateral surface at radius
+      ``outer_radius - wall_thickness`` (face normals point
+      radially inward, toward the cavity),
+    - top annular rim at ``z = +height/2`` (face normals point
+      ``+z``),
+    - bottom annular rim at ``z = -height/2`` (face normals point
+      ``-z``).
+
+    The central cavity remains empty space; no cavity-fill mesh,
+    no cap, no neck, no shoulder, no base petaloid geometry, no
+    label, no seam, and no manufacturing defect is modeled. The
+    fill state (empty / water-filled) is supplied to the optical
+    pipeline through caller-provided interface-sequence presets,
+    not through automatic medium tracking.
+
+    The mesh is built from raw vertex / face arrays with
+    ``process=False`` so that ``trimesh`` does not silently merge
+    vertices, drop degenerate faces, or alter winding. The
+    construction is hand-tuned to be watertight; no boolean
+    backend, no external solid-modeling dependency, and no STL I/O
+    are used.
+
+    Parameters
+    ----------
+    outer_radius
+        Outer lateral surface radius in caller-defined units.
+        Must be ``> 0``.
+    wall_thickness
+        PET wall thickness. Must be ``> 0`` and strictly less than
+        ``outer_radius`` so the inner radius stays positive.
+    height
+        Cylinder height along z. Must be ``> 0``; the resulting
+        mesh spans ``[-height/2, +height/2]`` along z.
+    sections
+        Number of flat panels approximating both circular
+        cross-sections. Must be ``>= 8``.
+    height_segments
+        Number of quad rows along z on each lateral surface.
+        Must be ``>= 1``. ``height_segments + 1`` z-rings are
+        emitted on each lateral surface.
+
+    Raises
+    ------
+    GeometryError
+        If ``outer_radius <= 0``, ``wall_thickness <= 0``,
+        ``wall_thickness >= outer_radius``, ``height <= 0``,
+        ``sections < 8``, or ``height_segments < 1``.
+    """
+    outer_r = float(outer_radius)
+    wall_t = float(wall_thickness)
+    height_f = float(height)
+    sections_i = int(sections)
+    height_segments_i = int(height_segments)
+
+    if outer_r <= 0.0:
+        raise GeometryError(
+            f"outer_radius must be positive; got {outer_r}"
+        )
+    if wall_t <= 0.0:
+        raise GeometryError(
+            f"wall_thickness must be positive; got {wall_t}"
+        )
+    if wall_t >= outer_r:
+        raise GeometryError(
+            f"wall_thickness ({wall_t}) must be strictly less than "
+            f"outer_radius ({outer_r}) so the inner radius is positive"
+        )
+    if height_f <= 0.0:
+        raise GeometryError(f"height must be positive; got {height_f}")
+    if sections_i < _MIN_SECTIONS:
+        raise GeometryError(
+            f"sections must be >= {_MIN_SECTIONS}; got {sections_i}"
+        )
+    if height_segments_i < _MIN_HEIGHT_SEGMENTS:
+        raise GeometryError(
+            f"height_segments must be >= {_MIN_HEIGHT_SEGMENTS}; "
+            f"got {height_segments_i}"
+        )
+
+    inner_r = outer_r - wall_t
+    s = sections_i
+    nz = height_segments_i + 1
+    half_h = 0.5 * height_f
+
+    theta = np.linspace(0.0, 2.0 * np.pi, s, endpoint=False)
+    cos_t = np.cos(theta)
+    sin_t = np.sin(theta)
+    z_vals = np.linspace(-half_h, +half_h, nz)
+
+    outer_xy = np.stack(
+        [outer_r * cos_t, outer_r * sin_t], axis=-1
+    )
+    inner_xy = np.stack(
+        [inner_r * cos_t, inner_r * sin_t], axis=-1
+    )
+
+    outer_vertices = np.empty((nz * s, 3), dtype=float)
+    inner_vertices = np.empty((nz * s, 3), dtype=float)
+    for j in range(nz):
+        outer_vertices[j * s:(j + 1) * s, 0:2] = outer_xy
+        outer_vertices[j * s:(j + 1) * s, 2] = z_vals[j]
+        inner_vertices[j * s:(j + 1) * s, 0:2] = inner_xy
+        inner_vertices[j * s:(j + 1) * s, 2] = z_vals[j]
+
+    vertices = np.vstack([outer_vertices, inner_vertices])
+    inner_off = nz * s
+
+    faces_list: list[list[int]] = []
+
+    # Outer lateral surface — face normals point radially outward.
+    # Same winding as solid bottle body lateral surface.
+    for j in range(height_segments_i):
+        for k in range(s):
+            kn = (k + 1) % s
+            a = j * s + k
+            b = (j + 1) * s + k
+            c = j * s + kn
+            d = (j + 1) * s + kn
+            faces_list.append([a, c, d])
+            faces_list.append([a, d, b])
+
+    # Inner lateral surface — face normals point radially inward
+    # toward the cavity. Reverse winding compared to outer.
+    for j in range(height_segments_i):
+        for k in range(s):
+            kn = (k + 1) % s
+            a = inner_off + j * s + k
+            b = inner_off + (j + 1) * s + k
+            c = inner_off + j * s + kn
+            d = inner_off + (j + 1) * s + kn
+            faces_list.append([a, d, c])
+            faces_list.append([a, b, d])
+
+    # Top annular rim (z = +half_h) — face normals point +z.
+    top_outer_off = height_segments_i * s
+    top_inner_off = inner_off + height_segments_i * s
+    for k in range(s):
+        kn = (k + 1) % s
+        oc = top_outer_off + k
+        on = top_outer_off + kn
+        ic = top_inner_off + k
+        in_ = top_inner_off + kn
+        faces_list.append([oc, on, in_])
+        faces_list.append([oc, in_, ic])
+
+    # Bottom annular rim (z = -half_h) — face normals point -z.
+    bot_outer_off = 0
+    bot_inner_off = inner_off
+    for k in range(s):
+        kn = (k + 1) % s
+        oc = bot_outer_off + k
+        on = bot_outer_off + kn
+        ic = bot_inner_off + k
+        in_ = bot_inner_off + kn
+        faces_list.append([oc, in_, on])
+        faces_list.append([oc, ic, in_])
 
     faces = np.asarray(faces_list, dtype=np.int64)
     return trimesh.Trimesh(

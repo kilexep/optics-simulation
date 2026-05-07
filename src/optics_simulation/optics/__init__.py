@@ -15,6 +15,10 @@ from optics_simulation.optics.intersection import (
     IntersectionResult,
     intersect_rays,
 )
+from optics_simulation.optics.media_presets import (
+    ShellMediumPreset,
+    create_shell_medium_preset,
+)
 from optics_simulation.optics.multi_step import (
     MultiStepTraceResult,
     run_multi_step_trace,
@@ -51,10 +55,12 @@ __all__ = [
     "PropagationResult",
     "RayBundle",
     "RefractionResult",
+    "ShellMediumPreset",
     "SingleInterfacePipelineResult",
     "accumulate_detector_hits",
     "create_detector_grid",
     "create_detector_plane",
+    "create_shell_medium_preset",
     "fresnel_unpolarized",
     "intersect_detector_plane",
     "intersect_rays",
