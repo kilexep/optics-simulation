@@ -7,6 +7,13 @@ caller provides calibrated incident irradiance. This is **not
 CFD**, **not pyrolysis chemistry**, and does **not** prove fire
 prevention or PET-bottle safety.
 """
+from optics_simulation.thermal.guardrail_sensitivity import (
+    GuardrailScenario,
+    GuardrailSensitivityEntry,
+    GuardrailSensitivityResult,
+    evaluate_guardrail_sensitivity,
+    evaluate_scan_guardrail_sensitivity,
+)
 from optics_simulation.thermal.lumped_target import (
     LumpedTargetHeatingMapResult,
     LumpedTargetHeatingResult,
@@ -43,6 +50,9 @@ __all__ = [
     "AngleDistanceHeatingScanResult",
     "AngleDistanceThermalRiskComparisonResult",
     "AngleDistanceThermalRiskScanResult",
+    "GuardrailScenario",
+    "GuardrailSensitivityEntry",
+    "GuardrailSensitivityResult",
     "LumpedTargetHeatingMapResult",
     "LumpedTargetHeatingResult",
     "PerAngleDistanceHeatingMapResult",
@@ -57,6 +67,8 @@ __all__ = [
     "compare_thermal_risk_metrics",
     "compute_thermal_risk_metrics",
     "compute_thermal_risk_metrics_over_angle_distance_scan",
+    "evaluate_guardrail_sensitivity",
+    "evaluate_scan_guardrail_sensitivity",
     "run_lumped_heating_maps_over_angle_distance_scan",
     "run_lumped_heating_over_angle_distance_scan",
     "simulate_lumped_target_heating",
