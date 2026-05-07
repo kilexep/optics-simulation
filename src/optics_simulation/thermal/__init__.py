@@ -12,9 +12,17 @@ from optics_simulation.thermal.lumped_target import (
     ThermalError,
     simulate_lumped_target_heating,
 )
+from optics_simulation.thermal.scan_coupling import (
+    AngleDistanceHeatingScanResult,
+    PerAngleDistanceHeatingResult,
+    run_lumped_heating_over_angle_distance_scan,
+)
 
 __all__ = [
+    "AngleDistanceHeatingScanResult",
     "LumpedTargetHeatingResult",
+    "PerAngleDistanceHeatingResult",
     "ThermalError",
+    "run_lumped_heating_over_angle_distance_scan",
     "simulate_lumped_target_heating",
 ]
