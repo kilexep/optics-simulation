@@ -16,9 +16,13 @@ from optics_simulation.metrics import (
 )
 from optics_simulation.optics import create_detector_grid
 from optics_simulation.thermal import (
+    AngleDistanceHeatingMapScanResult,
     AngleDistanceHeatingScanResult,
+    LumpedTargetHeatingMapResult,
+    PerAngleDistanceHeatingMapResult,
     PerAngleDistanceHeatingResult,
     ThermalError,
+    run_lumped_heating_maps_over_angle_distance_scan,
     run_lumped_heating_over_angle_distance_scan,
 )
 
@@ -373,3 +377,238 @@ def test_integration_smoke_with_real_angle_distance_sweep() -> None:
         assert np.isfinite(
             heat_entry.heating_result.temperature_k
         ).all()
+
+
+# -----------------------------------------------------------------
+# Per-pixel thermal-map scan coupling tests
+# -----------------------------------------------------------------
+
+_MAP_THERMAL_KWARGS = dict(
+    nominal_incident_irradiance_w_m2=1000.0,
+    duration_s=10.0,
+    dt_s=0.5,
+    areal_heat_capacity_j_m2k=1200.0,
+    absorptivity=0.8,
+    h_conv_w_m2k=10.0,
+    emissivity=0.9,
+    ambient_temp_k=293.15,
+    threshold_temp_k=295.0,
+    top_percent=1.0,
+)
+
+
+def test_map_returns_angle_distance_heating_map_scan_result() -> None:
+    scan = _build_scan([
+        _build_entry(angle=0.0, z=-100.0, relative_max=1.0),
+    ])
+    out = run_lumped_heating_maps_over_angle_distance_scan(
+        scan, **_MAP_THERMAL_KWARGS,
+    )
+    assert isinstance(out, AngleDistanceHeatingMapScanResult)
+    assert isinstance(out.per_result[0], PerAngleDistanceHeatingMapResult)
+    assert isinstance(
+        out.per_result[0].heating_map_result,
+        LumpedTargetHeatingMapResult,
+    )
+    assert out.map_mode == "relative_irradiance_map"
+
+
+def test_map_empty_scan_returns_empty_thermal_result() -> None:
+    out = run_lumped_heating_maps_over_angle_distance_scan(
+        _build_scan([]), **_MAP_THERMAL_KWARGS,
+    )
+    assert out.result_count == 0
+    assert out.per_result == ()
+    assert out.max_temperature_angle is None
+    assert out.max_temperature_detector_z is None
+    assert out.max_temperature_k is None
+    assert out.max_temperature_rise_k is None
+    assert out.max_top_percent_temperature_rise_k is None
+
+
+def test_map_requires_irradiance_surrogate_on_nonempty_entries() -> None:
+    bad_entry = _build_entry(angle=0.0, z=-100.0, relative_max=None)
+    bad_entry = PerAngleDistanceResult(
+        angle_degrees=bad_entry.angle_degrees,
+        detector_z=bad_entry.detector_z,
+        direction=bad_entry.direction,
+        ray_count=bad_entry.ray_count,
+        final_ray_count=bad_entry.final_ray_count,
+        detector_hits=bad_entry.detector_hits,
+        metrics=bad_entry.metrics,
+        termination_reason=bad_entry.termination_reason,
+        irradiance_surrogate=None,
+    )
+    with pytest.raises(ThermalError, match="irradiance_surrogate"):
+        run_lumped_heating_maps_over_angle_distance_scan(
+            _build_scan([bad_entry]),
+            **_MAP_THERMAL_KWARGS,
+        )
+
+
+def test_map_invalid_map_mode_raises() -> None:
+    scan = _build_scan([
+        _build_entry(angle=0.0, z=-100.0, relative_max=1.0),
+    ])
+    with pytest.raises(ThermalError, match="map_mode"):
+        run_lumped_heating_maps_over_angle_distance_scan(
+            scan, map_mode="bogus", **_MAP_THERMAL_KWARGS,
+        )
+
+
+def test_map_invalid_nominal_incident_irradiance_raises() -> None:
+    scan = _build_scan([
+        _build_entry(angle=0.0, z=-100.0, relative_max=1.0),
+    ])
+    bad_kwargs = dict(_MAP_THERMAL_KWARGS)
+    bad_kwargs["nominal_incident_irradiance_w_m2"] = -1.0
+    with pytest.raises(
+        ThermalError, match="nominal_incident_irradiance_w_m2"
+    ):
+        run_lumped_heating_maps_over_angle_distance_scan(
+            scan, **bad_kwargs,
+        )
+
+
+def test_map_incident_flux_map_max_equals_nominal_times_max_relative() -> None:
+    scan = _build_scan([
+        _build_entry(angle=0.0, z=-100.0, relative_max=2.5),
+        _build_entry(angle=10.0, z=-100.0, relative_max=4.0),
+    ])
+    out = run_lumped_heating_maps_over_angle_distance_scan(
+        scan, **_MAP_THERMAL_KWARGS,
+    )
+    nominal = _MAP_THERMAL_KWARGS["nominal_incident_irradiance_w_m2"]
+    assert out.per_result[0].incident_flux_map_max_w_m2 == pytest.approx(
+        nominal * 2.5
+    )
+    assert out.per_result[1].incident_flux_map_max_w_m2 == pytest.approx(
+        nominal * 4.0
+    )
+    assert out.per_result[0].max_relative_irradiance == pytest.approx(2.5)
+    assert out.per_result[1].max_relative_irradiance == pytest.approx(4.0)
+
+
+def test_map_per_result_ordering_follows_scan_ordering() -> None:
+    entries = [
+        _build_entry(angle=0.0, z=-80.0, relative_max=1.0),
+        _build_entry(angle=0.0, z=-100.0, relative_max=2.0),
+        _build_entry(angle=10.0, z=-80.0, relative_max=3.0),
+        _build_entry(angle=10.0, z=-100.0, relative_max=4.0),
+    ]
+    out = run_lumped_heating_maps_over_angle_distance_scan(
+        _build_scan(entries), **_MAP_THERMAL_KWARGS,
+    )
+    pairs = [(p.angle_degrees, p.detector_z) for p in out.per_result]
+    assert pairs == [
+        (0.0, -80.0), (0.0, -100.0), (10.0, -80.0), (10.0, -100.0),
+    ]
+
+
+def test_map_max_temperature_aggregate_matches_argmax() -> None:
+    entries = [
+        _build_entry(angle=0.0, z=-80.0, relative_max=1.0),
+        _build_entry(angle=0.0, z=-100.0, relative_max=2.0),
+        _build_entry(angle=10.0, z=-80.0, relative_max=4.0),
+        _build_entry(angle=10.0, z=-100.0, relative_max=3.0),
+    ]
+    out = run_lumped_heating_maps_over_angle_distance_scan(
+        _build_scan(entries), **_MAP_THERMAL_KWARGS,
+    )
+    max_temps = np.array(
+        [
+            p.heating_map_result.max_temperature_k
+            for p in out.per_result
+        ],
+        dtype=float,
+    )
+    idx = int(np.argmax(max_temps))
+    chosen = out.per_result[idx]
+    assert out.max_temperature_k == pytest.approx(
+        float(chosen.heating_map_result.max_temperature_k)
+    )
+    assert out.max_temperature_angle == chosen.angle_degrees
+    assert out.max_temperature_detector_z == chosen.detector_z
+
+
+def test_map_top_percent_aggregate_is_nonnegative() -> None:
+    scan = _build_scan([
+        _build_entry(angle=0.0, z=-100.0, relative_max=1.0),
+        _build_entry(angle=10.0, z=-100.0, relative_max=4.0),
+    ])
+    out = run_lumped_heating_maps_over_angle_distance_scan(
+        scan, **_MAP_THERMAL_KWARGS,
+    )
+    assert out.max_top_percent_temperature_rise_k is not None
+    assert float(out.max_top_percent_temperature_rise_k) >= 0.0
+
+
+def test_map_integration_smoke_with_real_angle_distance_sweep() -> None:
+    mesh = trimesh.creation.box(extents=(10.0, 10.0, 10.0))
+    sweep = run_angle_distance_sweep(
+        mesh=mesh,
+        angles_degrees=[0.0, 10.0],
+        detector_z_values=[-15.0, -25.0],
+        ray_grid_config={
+            "origin_plane_z": 20.0,
+            "x_range": (-7.5, 7.5),
+            "y_range": (-7.5, 7.5),
+            "nx": 7,
+            "ny": 7,
+        },
+        interface_sequence=[(1.00028, 1.575), (1.575, 1.00028)],
+        detector_width=10.0,
+        detector_height=10.0,
+        detector_resolution=(10, 10),
+        thresholds=(2.0, 5.0, 10.0),
+        use_power_weights=True,
+        use_relative_irradiance=True,
+    )
+    out = run_lumped_heating_maps_over_angle_distance_scan(
+        sweep, **_MAP_THERMAL_KWARGS,
+    )
+    assert out.result_count == len(sweep.per_result)
+    for sweep_entry, heat_entry in zip(sweep.per_result, out.per_result):
+        assert heat_entry.angle_degrees == sweep_entry.angle_degrees
+        assert heat_entry.detector_z == sweep_entry.detector_z
+        assert heat_entry.detector_hits == sweep_entry.detector_hits
+        assert heat_entry.final_ray_count == sweep_entry.final_ray_count
+        assert np.isfinite(
+            heat_entry.heating_map_result.max_temperature_map_k
+        ).all()
+        assert (
+            heat_entry.heating_map_result.max_temperature_map_k >= 0.0
+        ).all()
+
+
+def test_map_scan_result_is_not_mutated() -> None:
+    entry = _build_entry(angle=0.0, z=-100.0, relative_max=2.5)
+    scan = _build_scan([entry])
+    snapshot_map = (
+        scan.per_result[0].irradiance_surrogate
+        .relative_irradiance_map.copy()
+    )
+    snapshot_max_c99 = scan.max_c99
+    run_lumped_heating_maps_over_angle_distance_scan(
+        scan, **_MAP_THERMAL_KWARGS,
+    )
+    np.testing.assert_array_equal(
+        scan.per_result[0].irradiance_surrogate.relative_irradiance_map,
+        snapshot_map,
+    )
+    assert scan.max_c99 == snapshot_max_c99
+
+
+def test_map_no_file_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    scan = _build_scan([
+        _build_entry(angle=0.0, z=-100.0, relative_max=1.0),
+    ])
+    before = set(os.listdir(tmp_path))
+    run_lumped_heating_maps_over_angle_distance_scan(
+        scan, **_MAP_THERMAL_KWARGS,
+    )
+    after = set(os.listdir(tmp_path))
+    assert before == after

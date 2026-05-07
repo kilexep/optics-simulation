@@ -8,21 +8,31 @@ CFD**, **not pyrolysis chemistry**, and does **not** prove fire
 prevention or PET-bottle safety.
 """
 from optics_simulation.thermal.lumped_target import (
+    LumpedTargetHeatingMapResult,
     LumpedTargetHeatingResult,
     ThermalError,
     simulate_lumped_target_heating,
+    simulate_lumped_target_heating_map,
 )
 from optics_simulation.thermal.scan_coupling import (
+    AngleDistanceHeatingMapScanResult,
     AngleDistanceHeatingScanResult,
+    PerAngleDistanceHeatingMapResult,
     PerAngleDistanceHeatingResult,
+    run_lumped_heating_maps_over_angle_distance_scan,
     run_lumped_heating_over_angle_distance_scan,
 )
 
 __all__ = [
+    "AngleDistanceHeatingMapScanResult",
     "AngleDistanceHeatingScanResult",
+    "LumpedTargetHeatingMapResult",
     "LumpedTargetHeatingResult",
+    "PerAngleDistanceHeatingMapResult",
     "PerAngleDistanceHeatingResult",
     "ThermalError",
+    "run_lumped_heating_maps_over_angle_distance_scan",
     "run_lumped_heating_over_angle_distance_scan",
     "simulate_lumped_target_heating",
+    "simulate_lumped_target_heating_map",
 ]
