@@ -72,6 +72,10 @@ from optics_simulation.thermal.lumped_target import (
     simulate_lumped_target_heating,
     simulate_lumped_target_heating_map,
 )
+from optics_simulation.thermal.risk_metrics import (
+    ThermalRiskMetrics,
+    compute_thermal_risk_metrics,
+)
 
 
 _VALID_SCALAR_MODES = ("max_relative_irradiance",)
@@ -132,6 +136,36 @@ class AngleDistanceHeatingMapScanResult:
     map_mode: str
 
 
+@dataclass(frozen=True)
+class PerAngleDistanceThermalRiskResult:
+    angle_degrees: float
+    detector_z: float
+    optical_c99: float
+    optical_cmax: float
+    detector_hits: int
+    final_ray_count: int
+    termination_reason: str
+    thermal_metrics: ThermalRiskMetrics
+
+
+@dataclass(frozen=True)
+class AngleDistanceThermalRiskScanResult:
+    per_result: tuple[PerAngleDistanceThermalRiskResult, ...]
+    result_count: int
+    max_temperature_angle: float | None
+    max_temperature_detector_z: float | None
+    max_temperature_k: float | None
+    max_temperature_rise_k: float | None
+    max_top_percent_temperature_rise_angle: float | None
+    max_top_percent_temperature_rise_detector_z: float | None
+    max_top_percent_temperature_rise_k: float | None
+    max_threshold_exceeded_count_angle: float | None
+    max_threshold_exceeded_count_detector_z: float | None
+    max_threshold_exceeded_count: int | None
+    top_percent: float
+    metric_type: str = "angle_distance_thermal_risk_surrogate"
+
+
 def _check_finite_nonneg(value: float, *, name: str) -> float:
     try:
         v = float(value)
@@ -143,6 +177,35 @@ def _check_finite_nonneg(value: float, *, name: str) -> float:
         raise ThermalError(f"{name} must be finite; got {v}")
     if v < 0.0:
         raise ThermalError(f"{name} must be >= 0; got {v}")
+    return v
+
+
+def _check_top_percent_local(value: float) -> float:
+    try:
+        v = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ThermalError(
+            f"top_percent must be a finite float in (0, 100]; "
+            f"got {value!r}"
+        ) from exc
+    if not np.isfinite(v):
+        raise ThermalError(f"top_percent must be finite; got {v}")
+    if v <= 0.0 or v > 100.0:
+        raise ThermalError(f"top_percent must be in (0, 100]; got {v}")
+    return v
+
+
+def _check_pixel_area_local(value: float) -> float:
+    try:
+        v = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ThermalError(
+            f"pixel_area must be a finite float > 0; got {value!r}"
+        ) from exc
+    if not np.isfinite(v):
+        raise ThermalError(f"pixel_area must be finite; got {v}")
+    if v <= 0.0:
+        raise ThermalError(f"pixel_area must be > 0; got {v}")
     return v
 
 
@@ -479,4 +542,174 @@ def run_lumped_heating_maps_over_angle_distance_scan(
         max_top_percent_temperature_rise_k=float(top_rises.max()),
         nominal_incident_irradiance_w_m2=float(nominal),
         map_mode=str(map_mode),
+    )
+
+
+def _empty_thermal_risk_scan(
+    top_percent: float,
+) -> AngleDistanceThermalRiskScanResult:
+    return AngleDistanceThermalRiskScanResult(
+        per_result=(),
+        result_count=0,
+        max_temperature_angle=None,
+        max_temperature_detector_z=None,
+        max_temperature_k=None,
+        max_temperature_rise_k=None,
+        max_top_percent_temperature_rise_angle=None,
+        max_top_percent_temperature_rise_detector_z=None,
+        max_top_percent_temperature_rise_k=None,
+        max_threshold_exceeded_count_angle=None,
+        max_threshold_exceeded_count_detector_z=None,
+        max_threshold_exceeded_count=None,
+        top_percent=float(top_percent),
+    )
+
+
+def compute_thermal_risk_metrics_over_angle_distance_scan(
+    heating_scan: AngleDistanceHeatingMapScanResult,
+    *,
+    pixel_area: float | None = None,
+    top_percent: float = 1.0,
+) -> AngleDistanceThermalRiskScanResult:
+    """Reduce a per-pixel heating-map scan to thermal-risk metrics.
+
+    Synthetic thermal-risk surrogate metrics; **not an ignition
+    validation model**. Walks every
+    :class:`PerAngleDistanceHeatingMapResult` in ``heating_scan``,
+    calls :func:`compute_thermal_risk_metrics` once per entry, and
+    returns a frozen :class:`AngleDistanceThermalRiskScanResult`
+    with three independent first-occurrence aggregates:
+
+    1. ``max_temperature_*``: argmax of per-entry
+       ``thermal_metrics.max_temperature_k``.
+    2. ``max_top_percent_temperature_rise_*``: argmax of per-entry
+       ``thermal_metrics.top_percent_max_temperature_rise_k``.
+    3. ``max_threshold_exceeded_count_*``: argmax of per-entry
+       ``thermal_metrics.threshold_exceeded_count``.
+
+    Each aggregate is independent — they may point to different
+    (angle, detector_z) entries. Threshold values are illustrative
+    unless calibrated by experiment; this is **not** ignition
+    validation, **not** pyrolysis, **not** CFD, **not** spatial
+    conduction, and does **not** prove fire prevention or
+    PET-bottle safety. Delta values across pattern variants are
+    comparison diagnostics only; a negative delta is **not
+    required** and no metric is asserted to improve.
+
+    Parameters
+    ----------
+    heating_scan
+        :class:`AngleDistanceHeatingMapScanResult` produced by
+        :func:`run_lumped_heating_maps_over_angle_distance_scan`.
+        Empty ``per_result`` returns an empty risk scan with all
+        ``max_*`` aggregates ``None``.
+    pixel_area
+        Optional finite positive ``float`` forwarded to every
+        per-entry :func:`compute_thermal_risk_metrics` call so each
+        entry's ``threshold_exceeded_area`` is populated. ``None``
+        leaves areas as ``None``.
+    top_percent
+        Forwarded to each per-entry
+        :func:`compute_thermal_risk_metrics` call. Must satisfy
+        ``0 < top_percent <= 100``.
+
+    Raises
+    ------
+    ThermalError
+        On invalid ``heating_scan`` type, invalid ``top_percent``,
+        invalid ``pixel_area``, or any downstream
+        :class:`ThermalError` from
+        :func:`compute_thermal_risk_metrics`.
+    """
+    if not isinstance(heating_scan, AngleDistanceHeatingMapScanResult):
+        raise ThermalError(
+            f"heating_scan must be an "
+            f"AngleDistanceHeatingMapScanResult; "
+            f"got {type(heating_scan).__name__}"
+        )
+
+    top_pct = _check_top_percent_local(top_percent)
+    if pixel_area is not None:
+        _check_pixel_area_local(pixel_area)
+
+    if not heating_scan.per_result:
+        return _empty_thermal_risk_scan(top_pct)
+
+    per_list: list[PerAngleDistanceThermalRiskResult] = []
+    for entry in heating_scan.per_result:
+        metrics = compute_thermal_risk_metrics(
+            entry.heating_map_result,
+            pixel_area=pixel_area,
+            top_percent=top_percent,
+        )
+        per_list.append(
+            PerAngleDistanceThermalRiskResult(
+                angle_degrees=float(entry.angle_degrees),
+                detector_z=float(entry.detector_z),
+                optical_c99=float(entry.optical_c99),
+                optical_cmax=float(entry.optical_cmax),
+                detector_hits=int(entry.detector_hits),
+                final_ray_count=int(entry.final_ray_count),
+                termination_reason=str(entry.termination_reason),
+                thermal_metrics=metrics,
+            )
+        )
+
+    max_temps = np.array(
+        [p.thermal_metrics.max_temperature_k for p in per_list],
+        dtype=float,
+    )
+    idx_max_t = int(np.argmax(max_temps))
+    chosen_max_t = per_list[idx_max_t]
+
+    top_rises = np.array(
+        [
+            p.thermal_metrics.top_percent_max_temperature_rise_k
+            for p in per_list
+        ],
+        dtype=float,
+    )
+    idx_top = int(np.argmax(top_rises))
+    chosen_top = per_list[idx_top]
+
+    threshold_counts = np.array(
+        [
+            p.thermal_metrics.threshold_exceeded_count
+            for p in per_list
+        ],
+        dtype=np.int64,
+    )
+    idx_thr = int(np.argmax(threshold_counts))
+    chosen_thr = per_list[idx_thr]
+
+    return AngleDistanceThermalRiskScanResult(
+        per_result=tuple(per_list),
+        result_count=len(per_list),
+        max_temperature_angle=float(chosen_max_t.angle_degrees),
+        max_temperature_detector_z=float(chosen_max_t.detector_z),
+        max_temperature_k=float(
+            chosen_max_t.thermal_metrics.max_temperature_k
+        ),
+        max_temperature_rise_k=float(
+            chosen_max_t.thermal_metrics.max_temperature_rise_k
+        ),
+        max_top_percent_temperature_rise_angle=float(
+            chosen_top.angle_degrees
+        ),
+        max_top_percent_temperature_rise_detector_z=float(
+            chosen_top.detector_z
+        ),
+        max_top_percent_temperature_rise_k=float(
+            chosen_top.thermal_metrics.top_percent_max_temperature_rise_k
+        ),
+        max_threshold_exceeded_count_angle=float(
+            chosen_thr.angle_degrees
+        ),
+        max_threshold_exceeded_count_detector_z=float(
+            chosen_thr.detector_z
+        ),
+        max_threshold_exceeded_count=int(
+            chosen_thr.thermal_metrics.threshold_exceeded_count
+        ),
+        top_percent=float(top_percent),
     )

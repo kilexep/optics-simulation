@@ -14,11 +14,18 @@ from optics_simulation.thermal.lumped_target import (
     simulate_lumped_target_heating,
     simulate_lumped_target_heating_map,
 )
+from optics_simulation.thermal.risk_metrics import (
+    ThermalRiskMetrics,
+    compute_thermal_risk_metrics,
+)
 from optics_simulation.thermal.scan_coupling import (
     AngleDistanceHeatingMapScanResult,
     AngleDistanceHeatingScanResult,
+    AngleDistanceThermalRiskScanResult,
     PerAngleDistanceHeatingMapResult,
     PerAngleDistanceHeatingResult,
+    PerAngleDistanceThermalRiskResult,
+    compute_thermal_risk_metrics_over_angle_distance_scan,
     run_lumped_heating_maps_over_angle_distance_scan,
     run_lumped_heating_over_angle_distance_scan,
 )
@@ -26,11 +33,16 @@ from optics_simulation.thermal.scan_coupling import (
 __all__ = [
     "AngleDistanceHeatingMapScanResult",
     "AngleDistanceHeatingScanResult",
+    "AngleDistanceThermalRiskScanResult",
     "LumpedTargetHeatingMapResult",
     "LumpedTargetHeatingResult",
     "PerAngleDistanceHeatingMapResult",
     "PerAngleDistanceHeatingResult",
+    "PerAngleDistanceThermalRiskResult",
     "ThermalError",
+    "ThermalRiskMetrics",
+    "compute_thermal_risk_metrics",
+    "compute_thermal_risk_metrics_over_angle_distance_scan",
     "run_lumped_heating_maps_over_angle_distance_scan",
     "run_lumped_heating_over_angle_distance_scan",
     "simulate_lumped_target_heating",

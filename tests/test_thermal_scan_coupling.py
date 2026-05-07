@@ -18,10 +18,14 @@ from optics_simulation.optics import create_detector_grid
 from optics_simulation.thermal import (
     AngleDistanceHeatingMapScanResult,
     AngleDistanceHeatingScanResult,
+    AngleDistanceThermalRiskScanResult,
     LumpedTargetHeatingMapResult,
     PerAngleDistanceHeatingMapResult,
     PerAngleDistanceHeatingResult,
+    PerAngleDistanceThermalRiskResult,
     ThermalError,
+    ThermalRiskMetrics,
+    compute_thermal_risk_metrics_over_angle_distance_scan,
     run_lumped_heating_maps_over_angle_distance_scan,
     run_lumped_heating_over_angle_distance_scan,
 )
@@ -609,6 +613,210 @@ def test_map_no_file_output(
     before = set(os.listdir(tmp_path))
     run_lumped_heating_maps_over_angle_distance_scan(
         scan, **_MAP_THERMAL_KWARGS,
+    )
+    after = set(os.listdir(tmp_path))
+    assert before == after
+
+
+# -----------------------------------------------------------------
+# Scan-level thermal-risk metrics tests
+# -----------------------------------------------------------------
+
+_RISK_KWARGS = dict(
+    pixel_area=0.5,
+    top_percent=1.0,
+)
+
+
+def _heating_scan(entries: list[PerAngleDistanceResult]) -> AngleDistanceHeatingMapScanResult:
+    return run_lumped_heating_maps_over_angle_distance_scan(
+        _build_scan(entries), **_MAP_THERMAL_KWARGS,
+    )
+
+
+def test_risk_returns_angle_distance_thermal_risk_scan_result() -> None:
+    heating = _heating_scan([
+        _build_entry(angle=0.0, z=-100.0, relative_max=1.0),
+    ])
+    out = compute_thermal_risk_metrics_over_angle_distance_scan(
+        heating, **_RISK_KWARGS,
+    )
+    assert isinstance(out, AngleDistanceThermalRiskScanResult)
+    assert isinstance(
+        out.per_result[0], PerAngleDistanceThermalRiskResult,
+    )
+    assert isinstance(
+        out.per_result[0].thermal_metrics, ThermalRiskMetrics,
+    )
+    assert out.metric_type == "angle_distance_thermal_risk_surrogate"
+
+
+def test_risk_empty_heating_scan_returns_empty_risk_scan() -> None:
+    empty_heating = run_lumped_heating_maps_over_angle_distance_scan(
+        _build_scan([]), **_MAP_THERMAL_KWARGS,
+    )
+    out = compute_thermal_risk_metrics_over_angle_distance_scan(
+        empty_heating, **_RISK_KWARGS,
+    )
+    assert out.result_count == 0
+    assert out.per_result == ()
+    assert out.max_temperature_angle is None
+    assert out.max_temperature_detector_z is None
+    assert out.max_temperature_k is None
+    assert out.max_temperature_rise_k is None
+    assert out.max_top_percent_temperature_rise_angle is None
+    assert out.max_top_percent_temperature_rise_detector_z is None
+    assert out.max_top_percent_temperature_rise_k is None
+    assert out.max_threshold_exceeded_count_angle is None
+    assert out.max_threshold_exceeded_count_detector_z is None
+    assert out.max_threshold_exceeded_count is None
+
+
+def test_risk_per_result_ordering_preserved() -> None:
+    entries = [
+        _build_entry(angle=0.0, z=-80.0, relative_max=1.0),
+        _build_entry(angle=0.0, z=-100.0, relative_max=2.0),
+        _build_entry(angle=10.0, z=-80.0, relative_max=3.0),
+        _build_entry(angle=10.0, z=-100.0, relative_max=4.0),
+    ]
+    heating = _heating_scan(entries)
+    out = compute_thermal_risk_metrics_over_angle_distance_scan(
+        heating, **_RISK_KWARGS,
+    )
+    pairs = [(p.angle_degrees, p.detector_z) for p in out.per_result]
+    assert pairs == [
+        (0.0, -80.0), (0.0, -100.0), (10.0, -80.0), (10.0, -100.0),
+    ]
+
+
+def test_risk_max_temperature_aggregate_matches_argmax() -> None:
+    entries = [
+        _build_entry(angle=0.0, z=-80.0, relative_max=1.0),
+        _build_entry(angle=10.0, z=-80.0, relative_max=4.0),
+        _build_entry(angle=20.0, z=-80.0, relative_max=2.0),
+    ]
+    heating = _heating_scan(entries)
+    out = compute_thermal_risk_metrics_over_angle_distance_scan(
+        heating, **_RISK_KWARGS,
+    )
+    max_temps = np.array(
+        [
+            p.thermal_metrics.max_temperature_k
+            for p in out.per_result
+        ],
+        dtype=float,
+    )
+    idx = int(np.argmax(max_temps))
+    chosen = out.per_result[idx]
+    assert out.max_temperature_k == pytest.approx(
+        float(chosen.thermal_metrics.max_temperature_k)
+    )
+    assert out.max_temperature_angle == chosen.angle_degrees
+    assert out.max_temperature_detector_z == chosen.detector_z
+
+
+def test_risk_top_percent_rise_aggregate_matches_argmax() -> None:
+    entries = [
+        _build_entry(angle=0.0, z=-80.0, relative_max=1.0),
+        _build_entry(angle=10.0, z=-80.0, relative_max=5.0),
+        _build_entry(angle=20.0, z=-80.0, relative_max=2.0),
+    ]
+    heating = _heating_scan(entries)
+    out = compute_thermal_risk_metrics_over_angle_distance_scan(
+        heating, **_RISK_KWARGS,
+    )
+    rises = np.array(
+        [
+            p.thermal_metrics.top_percent_max_temperature_rise_k
+            for p in out.per_result
+        ],
+        dtype=float,
+    )
+    idx = int(np.argmax(rises))
+    chosen = out.per_result[idx]
+    assert out.max_top_percent_temperature_rise_k == pytest.approx(
+        float(
+            chosen.thermal_metrics.top_percent_max_temperature_rise_k
+        )
+    )
+    assert (
+        out.max_top_percent_temperature_rise_angle == chosen.angle_degrees
+    )
+    assert (
+        out.max_top_percent_temperature_rise_detector_z
+        == chosen.detector_z
+    )
+
+
+def test_risk_threshold_exceeded_count_aggregate_matches_argmax() -> None:
+    entries = [
+        _build_entry(angle=0.0, z=-80.0, relative_max=1.0),
+        _build_entry(angle=10.0, z=-80.0, relative_max=10.0),
+        _build_entry(angle=20.0, z=-80.0, relative_max=2.0),
+    ]
+    heating = _heating_scan(entries)
+    out = compute_thermal_risk_metrics_over_angle_distance_scan(
+        heating, **_RISK_KWARGS,
+    )
+    counts = np.array(
+        [
+            p.thermal_metrics.threshold_exceeded_count
+            for p in out.per_result
+        ],
+        dtype=np.int64,
+    )
+    idx = int(np.argmax(counts))
+    chosen = out.per_result[idx]
+    assert out.max_threshold_exceeded_count == int(
+        chosen.thermal_metrics.threshold_exceeded_count
+    )
+    assert (
+        out.max_threshold_exceeded_count_angle == chosen.angle_degrees
+    )
+    assert (
+        out.max_threshold_exceeded_count_detector_z == chosen.detector_z
+    )
+
+
+def test_risk_pixel_area_propagates_into_threshold_exceeded_area() -> None:
+    entries = [
+        _build_entry(angle=0.0, z=-100.0, relative_max=10.0),
+        _build_entry(angle=10.0, z=-100.0, relative_max=2.0),
+    ]
+    heating = _heating_scan(entries)
+    out = compute_thermal_risk_metrics_over_angle_distance_scan(
+        heating, pixel_area=2.5, top_percent=1.0,
+    )
+    for p in out.per_result:
+        expected = float(
+            p.thermal_metrics.threshold_exceeded_count
+        ) * 2.5
+        assert p.thermal_metrics.threshold_exceeded_area == pytest.approx(
+            expected
+        )
+        assert p.thermal_metrics.pixel_area == pytest.approx(2.5)
+
+
+def test_risk_invalid_input_type_raises() -> None:
+    with pytest.raises(
+        ThermalError, match="AngleDistanceHeatingMapScanResult"
+    ):
+        compute_thermal_risk_metrics_over_angle_distance_scan(
+            object(),  # type: ignore[arg-type]
+            **_RISK_KWARGS,
+        )
+
+
+def test_risk_no_file_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    heating = _heating_scan([
+        _build_entry(angle=0.0, z=-100.0, relative_max=1.0),
+    ])
+    before = set(os.listdir(tmp_path))
+    compute_thermal_risk_metrics_over_angle_distance_scan(
+        heating, **_RISK_KWARGS,
     )
     after = set(os.listdir(tmp_path))
     assert before == after
