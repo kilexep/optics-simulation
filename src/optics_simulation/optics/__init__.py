@@ -19,6 +19,14 @@ from optics_simulation.optics.media_presets import (
     ShellMediumPreset,
     create_shell_medium_preset,
 )
+from optics_simulation.optics.media_tracking import (
+    ShellHitSurfaceClassification,
+    ShellMediumTrackingResult,
+    ShellMediumTrackingStepSummary,
+    classify_synthetic_shell_hit_surfaces,
+    expected_shell_surface_sequence,
+    run_surface_classified_shell_trace,
+)
 from optics_simulation.optics.multi_step import (
     MultiStepTraceResult,
     run_multi_step_trace,
@@ -55,12 +63,17 @@ __all__ = [
     "PropagationResult",
     "RayBundle",
     "RefractionResult",
+    "ShellHitSurfaceClassification",
     "ShellMediumPreset",
+    "ShellMediumTrackingResult",
+    "ShellMediumTrackingStepSummary",
     "SingleInterfacePipelineResult",
     "accumulate_detector_hits",
+    "classify_synthetic_shell_hit_surfaces",
     "create_detector_grid",
     "create_detector_plane",
     "create_shell_medium_preset",
+    "expected_shell_surface_sequence",
     "fresnel_unpolarized",
     "intersect_detector_plane",
     "intersect_rays",
@@ -71,4 +84,5 @@ __all__ = [
     "refract_direction",
     "run_multi_step_trace",
     "run_single_interface_pipeline",
+    "run_surface_classified_shell_trace",
 ]
