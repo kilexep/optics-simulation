@@ -8,11 +8,17 @@ from optics_simulation.metrics.optical import (
     OpticalMetrics,
     compute_optical_metrics,
 )
+from optics_simulation.metrics.irradiance import (
+    DetectorIrradianceSurrogate,
+    compute_relative_irradiance_surrogate,
+)
 
 __all__ = [
+    "DetectorIrradianceSurrogate",
     "HotspotSelection",
     "MetricsError",
     "OpticalMetrics",
     "compute_optical_metrics",
+    "compute_relative_irradiance_surrogate",
     "select_hotspot_rays",
 ]
