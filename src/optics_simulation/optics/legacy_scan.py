@@ -38,6 +38,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from optics_simulation.metrics.irradiance import (
+    DetectorIrradianceSurrogate,
     compute_relative_irradiance_surrogate,
 )
 from optics_simulation.metrics.optical import (
@@ -129,6 +130,7 @@ class LegacyOpticalScanEntry:
     cmax: float
     c99: float
     termination_reason: str
+    irradiance_surrogate: DetectorIrradianceSurrogate | None = None
 
 
 @dataclass(frozen=True)
@@ -294,6 +296,7 @@ def run_legacy_pet_water_angle_distance_scan(
     thresholds: tuple[float, ...] = _DEFAULT_THRESHOLDS,
     top_percent: float = _DEFAULT_TOP_PERCENT,
     source_radius: float = _DEFAULT_SOURCE_RADIUS,
+    store_irradiance_surrogate: bool = False,
 ) -> LegacyOpticalScanResult:
     """Run a legacy-style angle / detector-distance optical scan.
 
@@ -492,6 +495,11 @@ def run_legacy_pet_water_angle_distance_scan(
                     c99=float(metrics.c99),
                     termination_reason=str(
                         trace.termination_reason
+                    ),
+                    irradiance_surrogate=(
+                        surrogate
+                        if bool(store_irradiance_surrogate)
+                        else None
                     ),
                 )
             )

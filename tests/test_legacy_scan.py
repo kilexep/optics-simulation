@@ -644,3 +644,110 @@ def test_summarize_invalid_inputs_raise() -> None:
         summarize_legacy_optical_scan("nope", schedule)  # type: ignore[arg-type]
     with pytest.raises(OpticsError, match="LegacyParitySchedule"):
         summarize_legacy_optical_scan(_empty_result(), "nope")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# store_irradiance_surrogate kwarg
+# ---------------------------------------------------------------------------
+
+
+def test_store_irradiance_surrogate_default_is_none() -> None:
+    setup = _setup()
+    result = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=(0.0, 15.0),
+        detector_distances=(120.0, 200.0),
+        source_width=80.0, source_height=240.0,
+        sample_count_y=4, sample_count_z=4,
+        detector_size=400.0, detector_resolution=(20, 20),
+    )
+    for entry in result.entries:
+        assert entry.irradiance_surrogate is None
+
+
+def test_store_irradiance_surrogate_true_sets_field() -> None:
+    setup = _setup()
+    result = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=(0.0, 15.0),
+        detector_distances=(120.0, 200.0),
+        source_width=80.0, source_height=240.0,
+        sample_count_y=4, sample_count_z=4,
+        detector_size=400.0, detector_resolution=(20, 20),
+        store_irradiance_surrogate=True,
+    )
+    for entry in result.entries:
+        assert entry.irradiance_surrogate is not None
+
+
+def test_stored_surrogate_relative_irradiance_map_shape() -> None:
+    setup = _setup()
+    result = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=(0.0,),
+        detector_distances=(120.0,),
+        source_width=80.0, source_height=240.0,
+        sample_count_y=4, sample_count_z=4,
+        detector_size=400.0, detector_resolution=(20, 20),
+        store_irradiance_surrogate=True,
+    )
+    entry = result.entries[0]
+    assert entry.irradiance_surrogate is not None
+    assert (
+        entry.irradiance_surrogate.relative_irradiance_map.shape
+        == (20, 20)
+    )
+
+
+def test_stored_surrogate_max_matches_entry_max() -> None:
+    setup = _setup()
+    result = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=(0.0, 15.0),
+        detector_distances=(120.0, 200.0),
+        source_width=80.0, source_height=240.0,
+        sample_count_y=4, sample_count_z=4,
+        detector_size=400.0, detector_resolution=(20, 20),
+        store_irradiance_surrogate=True,
+    )
+    for entry in result.entries:
+        assert entry.irradiance_surrogate is not None
+        assert (
+            float(entry.irradiance_surrogate.relative_irradiance_map.max())
+            == pytest.approx(
+                float(entry.max_relative_irradiance), abs=1e-12,
+            )
+        )
+
+
+def test_default_store_behavior_is_backward_compatible() -> None:
+    setup = _setup()
+    base = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=(0.0,),
+        detector_distances=(120.0,),
+        source_width=80.0, source_height=240.0,
+        sample_count_y=4, sample_count_z=4,
+        detector_size=400.0, detector_resolution=(20, 20),
+    )
+    stored = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=(0.0,),
+        detector_distances=(120.0,),
+        source_width=80.0, source_height=240.0,
+        sample_count_y=4, sample_count_z=4,
+        detector_size=400.0, detector_resolution=(20, 20),
+        store_irradiance_surrogate=True,
+    )
+    # Public scalar metrics should match between both modes.
+    assert base.entries[0].c99 == pytest.approx(
+        stored.entries[0].c99, abs=1e-12,
+    )
+    assert base.entries[0].cmax == pytest.approx(
+        stored.entries[0].cmax, abs=1e-12,
+    )
+    assert base.entries[0].max_relative_irradiance == pytest.approx(
+        stored.entries[0].max_relative_irradiance, abs=1e-12,
+    )
+    assert base.entries[0].irradiance_surrogate is None
+    assert stored.entries[0].irradiance_surrogate is not None

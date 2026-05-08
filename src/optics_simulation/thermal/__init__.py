@@ -14,6 +14,11 @@ from optics_simulation.thermal.guardrail_sensitivity import (
     evaluate_guardrail_sensitivity,
     evaluate_scan_guardrail_sensitivity,
 )
+from optics_simulation.thermal.legacy_scan_coupling import (
+    LegacyThermalRiskEntry,
+    LegacyThermalRiskScanResult,
+    compute_thermal_risk_over_legacy_optical_scan,
+)
 from optics_simulation.thermal.lumped_target import (
     LumpedTargetHeatingMapResult,
     LumpedTargetHeatingResult,
@@ -53,6 +58,8 @@ __all__ = [
     "GuardrailScenario",
     "GuardrailSensitivityEntry",
     "GuardrailSensitivityResult",
+    "LegacyThermalRiskEntry",
+    "LegacyThermalRiskScanResult",
     "LumpedTargetHeatingMapResult",
     "LumpedTargetHeatingResult",
     "PerAngleDistanceHeatingMapResult",
@@ -67,6 +74,7 @@ __all__ = [
     "compare_thermal_risk_metrics",
     "compute_thermal_risk_metrics",
     "compute_thermal_risk_metrics_over_angle_distance_scan",
+    "compute_thermal_risk_over_legacy_optical_scan",
     "evaluate_guardrail_sensitivity",
     "evaluate_scan_guardrail_sensitivity",
     "run_lumped_heating_maps_over_angle_distance_scan",
