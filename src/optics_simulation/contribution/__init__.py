@@ -4,6 +4,12 @@ from optics_simulation.contribution.map import (
     ContributionMap,
     create_contribution_map,
 )
+from optics_simulation.contribution.legacy_contribution_diagnostic import (
+    ContributionMapOverlapDiagnostic,
+    PatternInducedHotspotDiagnostic,
+    build_pattern_induced_hotspot_diagnostic,
+    compare_legacy_contribution_maps,
+)
 from optics_simulation.contribution.legacy_hotspot_backtracking import (
     LegacyHotspotContributionResult,
     build_legacy_hotspot_contribution_map,
@@ -22,13 +28,17 @@ from optics_simulation.contribution.risk_map import (
 __all__ = [
     "ContributionError",
     "ContributionMap",
+    "ContributionMapOverlapDiagnostic",
     "LegacyConditionSelection",
     "LegacyHotspotContributionResult",
     "LegacyMultiConditionContributionResult",
+    "PatternInducedHotspotDiagnostic",
     "RiskMap",
     "build_legacy_hotspot_contribution_map",
     "build_multi_condition_legacy_hotspot_contribution_map",
+    "build_pattern_induced_hotspot_diagnostic",
     "build_risk_map",
+    "compare_legacy_contribution_maps",
     "create_contribution_map",
     "select_legacy_worst_conditions",
 ]
