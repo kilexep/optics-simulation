@@ -15,6 +15,10 @@ from optics_simulation.optics.intersection import (
     IntersectionResult,
     intersect_rays,
 )
+from optics_simulation.optics.legacy_pet_water import (
+    LegacyPetWaterTraceSetup,
+    create_legacy_pet_water_trace_setup,
+)
 from optics_simulation.optics.media_presets import (
     ShellMediumPreset,
     create_shell_medium_preset,
@@ -26,6 +30,11 @@ from optics_simulation.optics.media_tracking import (
     classify_synthetic_shell_hit_surfaces,
     expected_shell_surface_sequence,
     run_surface_classified_shell_trace,
+)
+from optics_simulation.optics.multi_mesh_trace import (
+    MultiMeshTraceResult,
+    MultiMeshTraceStepSpec,
+    run_multi_mesh_trace,
 )
 from optics_simulation.optics.multi_step import (
     MultiStepTraceResult,
@@ -58,6 +67,9 @@ __all__ = [
     "DetectorHitResult",
     "DetectorPlane",
     "IntersectionResult",
+    "LegacyPetWaterTraceSetup",
+    "MultiMeshTraceResult",
+    "MultiMeshTraceStepSpec",
     "MultiStepTraceResult",
     "OpticsError",
     "PropagationResult",
@@ -72,6 +84,7 @@ __all__ = [
     "classify_synthetic_shell_hit_surfaces",
     "create_detector_grid",
     "create_detector_plane",
+    "create_legacy_pet_water_trace_setup",
     "create_shell_medium_preset",
     "expected_shell_surface_sequence",
     "fresnel_unpolarized",
@@ -82,6 +95,7 @@ __all__ = [
     "parallel_ray_grid",
     "propagate_through_interface",
     "refract_direction",
+    "run_multi_mesh_trace",
     "run_multi_step_trace",
     "run_single_interface_pipeline",
     "run_surface_classified_shell_trace",
