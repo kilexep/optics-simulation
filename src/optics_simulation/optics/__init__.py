@@ -92,6 +92,13 @@ _LAZY_LEGACY_DETAILED_TRACE = {
     "run_legacy_pet_water_detailed_trace",
 }
 
+_LAZY_LEGACY_RISK_GUIDED_SWEEP = {
+    "RiskGuidedPatternCandidateSpec",
+    "RiskGuidedPatternSweepEntry",
+    "RiskGuidedPatternSweepResult",
+    "run_actual_stl_risk_guided_pattern_parameter_sweep",
+}
+
 
 def __getattr__(name: str):
     if name in _LAZY_LEGACY_PATTERNED:
@@ -120,6 +127,27 @@ def __getattr__(name: str):
                 run_legacy_pet_water_detailed_trace
             ),
         }[name]
+    if name in _LAZY_LEGACY_RISK_GUIDED_SWEEP:
+        from optics_simulation.optics.legacy_risk_guided_sweep import (
+            RiskGuidedPatternCandidateSpec,
+            RiskGuidedPatternSweepEntry,
+            RiskGuidedPatternSweepResult,
+            run_actual_stl_risk_guided_pattern_parameter_sweep,
+        )
+        return {
+            "RiskGuidedPatternCandidateSpec": (
+                RiskGuidedPatternCandidateSpec
+            ),
+            "RiskGuidedPatternSweepEntry": (
+                RiskGuidedPatternSweepEntry
+            ),
+            "RiskGuidedPatternSweepResult": (
+                RiskGuidedPatternSweepResult
+            ),
+            "run_actual_stl_risk_guided_pattern_parameter_sweep": (
+                run_actual_stl_risk_guided_pattern_parameter_sweep
+            ),
+        }[name]
     raise AttributeError(
         f"module 'optics_simulation.optics' has no attribute {name!r}"
     )
@@ -145,6 +173,9 @@ __all__ = [
     "PropagationResult",
     "RayBundle",
     "RefractionResult",
+    "RiskGuidedPatternCandidateSpec",
+    "RiskGuidedPatternSweepEntry",
+    "RiskGuidedPatternSweepResult",
     "ShellHitSurfaceClassification",
     "ShellMediumPreset",
     "ShellMediumTrackingResult",
@@ -169,6 +200,7 @@ __all__ = [
     "parallel_ray_grid",
     "propagate_through_interface",
     "refract_direction",
+    "run_actual_stl_risk_guided_pattern_parameter_sweep",
     "run_legacy_pet_water_angle_distance_scan",
     "run_legacy_pet_water_detailed_trace",
     "run_multi_mesh_trace",
