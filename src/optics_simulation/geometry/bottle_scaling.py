@@ -59,6 +59,9 @@ class BottleTargetScaleReport:
     report_type: str = "bottle_target_dimension_scale_report"
 
 
+_VALID_OFFSET_MODES = ("auto", "minus_normals", "plus_normals")
+
+
 @dataclass(frozen=True)
 class InnerOffsetMeshReport:
     thickness: float
@@ -67,6 +70,15 @@ class InnerOffsetMeshReport:
     source_mesh_watertight: bool
     inner_mesh_watertight: bool
     inverted: bool
+    offset_mode: str
+    selected_offset_sign: float
+    original_radial_stat: float
+    minus_radial_stat: float
+    plus_radial_stat: float
+    selected_radial_stat: float
+    radial_delta: float
+    inward_offset_detected: bool
+    notes: tuple[str, ...]
     report_type: str = "inner_offset_mesh_report"
 
 
@@ -231,58 +243,97 @@ def create_target_scaled_mesh_copy(
     return scaled_mesh, report
 
 
+def _radial_median_stat(
+    vertices: np.ndarray,
+    *,
+    cx: float,
+    cy: float,
+    near_axis_mask: np.ndarray,
+) -> float:
+    if vertices.shape[0] == 0:
+        return float("inf")
+    r = np.sqrt(
+        (vertices[:, 0] - cx) ** 2 + (vertices[:, 1] - cy) ** 2
+    )
+    if int(near_axis_mask.sum()) >= 4:
+        r_use = r[near_axis_mask]
+    else:
+        r_use = r
+    return float(np.median(r_use))
+
+
 def create_inner_offset_mesh_from_vertex_normals(
     mesh: trimesh.Trimesh,
     *,
     thickness: float,
     invert: bool = True,
     process: bool = False,
+    offset_mode: str = "auto",
 ) -> tuple[trimesh.Trimesh, InnerOffsetMeshReport]:
-    """Generate a legacy-style inner offset mesh from vertex normals.
+    """Generate an inner offset mesh with normal-direction autodetection.
 
-    Legacy-style STL optical smoke check; **not a physical
-    PET-bottle validation**. Reproduces the old experiment's
-    "water boundary" mesh by computing::
+    Legacy STL inner-offset orientation diagnostic; **not a
+    physical PET-bottle validation**. Reproduces the old
+    experiment's "water boundary" mesh while adding a robust
+    direction-selection step so the resulting inner mesh is
+    actually closer to the bottle's centerline than the source
+    surface, regardless of whether the source mesh's vertex
+    normals point outward or inward. The candidate offsets are::
 
-        vertices_inner = mesh.vertices - thickness * mesh.vertex_normals
+        vertices_minus = vertices - thickness * vertex_normals
+        vertices_plus  = vertices + thickness * vertex_normals
 
-    and emitting a fresh :class:`trimesh.Trimesh` that **shares the
-    original face table** (a copy is held internally so the input
-    mesh is never mutated). When ``invert=True`` (the default)
-    ``inner_mesh.invert()`` is called so the face winding is
-    flipped and the resulting surface acts as the water-side
-    boundary.
+    With ``offset_mode == "minus_normals"`` the legacy formula is
+    used unchanged. With ``offset_mode == "plus_normals"`` the
+    sign is flipped. With ``offset_mode == "auto"`` (default) the
+    function picks the candidate whose median radial distance
+    (around the bounding-box xy center, computed only over
+    non-axis vertices) is smaller; ties select ``minus_normals``.
+    The selected candidate is checked against the original
+    median: ``inward_offset_detected`` is ``True`` only when the
+    selected candidate is **strictly** more inward than the
+    source.
 
-    This is a legacy-style generated inner surface; it is **not
-    guaranteed to represent true wall thickness** and does **not**
-    perform mesh repair, hole filling, normal fixing, or material-
-    region inference.
+    Normal-direction autodetection is a **geometric robustness
+    step**. It does **not** prove physical wall thickness
+    accuracy, does **not** repair meshes, does **not** infer true
+    material regions, does **not** perform thermal simulation,
+    and does **not** prove fire prevention or PET-bottle safety.
 
     Parameters
     ----------
     mesh
-        Input :class:`trimesh.Trimesh`. Must be non-empty and have
+        Input :class:`trimesh.Trimesh`. Must be non-empty with
         finite vertex normals.
     thickness
-        Strict positive offset distance applied along
-        ``-mesh.vertex_normals``. Must be a finite float ``> 0``.
+        Strict positive offset distance. Must be a finite float
+        ``> 0``.
     invert
-        If ``True`` (default) the resulting mesh's face winding is
-        flipped via ``mesh.invert()`` so the surface points into
-        the cavity.
+        If ``True`` (default) the resulting mesh's face winding
+        is flipped via ``mesh.invert()`` so the surface points
+        into the cavity (legacy water-boundary convention).
     process
         Forwarded to :class:`trimesh.Trimesh`. Default ``False``
         so that ``trimesh`` does not silently merge vertices,
         drop degenerate faces, or alter winding.
+    offset_mode
+        One of ``"auto"`` / ``"minus_normals"`` / ``"plus_normals"``.
 
     Raises
     ------
     GeometryError
         On non-Trimesh / empty input, non-finite vertex normals,
-        non-finite or non-positive ``thickness``.
+        non-finite or non-positive ``thickness``, or invalid
+        ``offset_mode``.
     """
     _validate_mesh(mesh)
     th = _validate_finite_positive(thickness, "thickness")
+
+    if offset_mode not in _VALID_OFFSET_MODES:
+        raise GeometryError(
+            f"offset_mode must be one of {_VALID_OFFSET_MODES}; "
+            f"got {offset_mode!r}"
+        )
 
     vertex_normals = np.asarray(mesh.vertex_normals, dtype=float)
     vertices = np.asarray(mesh.vertices, dtype=float)
@@ -297,10 +348,74 @@ def create_inner_offset_mesh_from_vertex_normals(
             "mesh.vertex_normals contain non-finite values; cannot "
             "build inner offset mesh"
         )
+    if not np.all(np.isfinite(vertices)):
+        raise GeometryError(
+            "mesh.vertices contain non-finite values; cannot build "
+            "inner offset mesh"
+        )
 
-    inner_vertices = vertices - th * vertex_normals
+    bounds = np.asarray(mesh.bounds, dtype=float)
+    cx = float(0.5 * (bounds[0, 0] + bounds[1, 0]))
+    cy = float(0.5 * (bounds[0, 1] + bounds[1, 1]))
+
+    extent_vec = bounds[1] - bounds[0]
+    extent_norm = float(np.linalg.norm(extent_vec))
+    axis_eps = 1e-9 * max(1.0, extent_norm)
+    r0_full = np.sqrt(
+        (vertices[:, 0] - cx) ** 2 + (vertices[:, 1] - cy) ** 2
+    )
+    near_axis_mask = r0_full > axis_eps
+
+    candidate_minus = vertices - th * vertex_normals
+    candidate_plus = vertices + th * vertex_normals
+
+    original_radial_stat = _radial_median_stat(
+        vertices, cx=cx, cy=cy, near_axis_mask=near_axis_mask,
+    )
+    minus_radial_stat = _radial_median_stat(
+        candidate_minus, cx=cx, cy=cy, near_axis_mask=near_axis_mask,
+    )
+    plus_radial_stat = _radial_median_stat(
+        candidate_plus, cx=cx, cy=cy, near_axis_mask=near_axis_mask,
+    )
+
+    if offset_mode == "minus_normals":
+        selected_sign = -1.0
+    elif offset_mode == "plus_normals":
+        selected_sign = +1.0
+    else:
+        # auto: pick the smaller-radius candidate. Tie -> minus.
+        if minus_radial_stat <= plus_radial_stat:
+            selected_sign = -1.0
+        else:
+            selected_sign = +1.0
+
+    if selected_sign == -1.0:
+        inner_vertices = candidate_minus
+        selected_radial_stat = minus_radial_stat
+    else:
+        inner_vertices = candidate_plus
+        selected_radial_stat = plus_radial_stat
+
+    radial_delta = float(selected_radial_stat - original_radial_stat)
+    inward_offset_detected = bool(
+        selected_radial_stat < original_radial_stat
+    )
+
+    notes_list: list[str] = [
+        "Legacy STL inner-offset orientation diagnostic; not a "
+        "physical PET-bottle validation.",
+        f"offset_mode={offset_mode}, "
+        f"selected_offset_sign={selected_sign:+.0f}",
+    ]
+    if not inward_offset_detected:
+        notes_list.append(
+            "Selected offset did not strictly reduce the median "
+            "radial distance; inner mesh may not lie strictly "
+            "inside the source surface."
+        )
+
     inner_faces = np.asarray(mesh.faces).copy()
-
     inner_mesh = trimesh.Trimesh(
         vertices=inner_vertices,
         faces=inner_faces,
@@ -316,5 +431,14 @@ def create_inner_offset_mesh_from_vertex_normals(
         source_mesh_watertight=bool(mesh.is_watertight),
         inner_mesh_watertight=bool(inner_mesh.is_watertight),
         inverted=bool(invert),
+        offset_mode=str(offset_mode),
+        selected_offset_sign=float(selected_sign),
+        original_radial_stat=float(original_radial_stat),
+        minus_radial_stat=float(minus_radial_stat),
+        plus_radial_stat=float(plus_radial_stat),
+        selected_radial_stat=float(selected_radial_stat),
+        radial_delta=radial_delta,
+        inward_offset_detected=inward_offset_detected,
+        notes=tuple(notes_list),
     )
     return inner_mesh, report

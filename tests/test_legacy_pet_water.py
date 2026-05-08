@@ -150,3 +150,71 @@ def test_input_mesh_not_mutated() -> None:
     create_legacy_pet_water_trace_setup(mesh)
     assert np.array_equal(np.asarray(mesh.vertices), vertices_before)
     assert np.array_equal(np.asarray(mesh.faces), faces_before)
+
+
+def test_default_inner_offset_mode_is_auto() -> None:
+    setup = create_legacy_pet_water_trace_setup(_shell())
+    assert setup.inner_offset_report.offset_mode == "auto"
+
+
+def test_inner_offset_mode_minus_normals_passes_through() -> None:
+    setup = create_legacy_pet_water_trace_setup(
+        _shell(), inner_offset_mode="minus_normals",
+    )
+    assert setup.inner_offset_report.offset_mode == "minus_normals"
+    assert setup.inner_offset_report.selected_offset_sign == pytest.approx(
+        -1.0, abs=1e-12,
+    )
+
+
+def test_inner_offset_mode_plus_normals_passes_through() -> None:
+    setup = create_legacy_pet_water_trace_setup(
+        _shell(), inner_offset_mode="plus_normals",
+    )
+    assert setup.inner_offset_report.offset_mode == "plus_normals"
+    assert setup.inner_offset_report.selected_offset_sign == pytest.approx(
+        +1.0, abs=1e-12,
+    )
+
+
+def test_inner_offset_mode_invalid_raises() -> None:
+    with pytest.raises((GeometryError, OpticsError)):
+        create_legacy_pet_water_trace_setup(
+            _shell(), inner_offset_mode="bogus",
+        )
+
+
+def test_water_mesh_radial_smaller_than_shell_for_outward_cylinder() -> None:
+    cyl = trimesh.creation.cylinder(
+        radius=30.0, height=120.0, sections=64,
+    )
+    setup = create_legacy_pet_water_trace_setup(
+        cyl,
+        target_height=120.0,
+        target_diameter=60.0,
+        wall_thickness=0.3,
+        inner_offset_mode="auto",
+    )
+    assert setup.inner_offset_report.inward_offset_detected is True
+    assert (
+        setup.inner_offset_report.selected_radial_stat
+        < setup.inner_offset_report.original_radial_stat
+    )
+
+
+def test_water_mesh_radial_smaller_for_inward_normal_mesh() -> None:
+    cyl = trimesh.creation.cylinder(
+        radius=30.0, height=120.0, sections=64,
+    )
+    cyl.invert()
+    setup = create_legacy_pet_water_trace_setup(
+        cyl,
+        target_height=120.0,
+        target_diameter=60.0,
+        wall_thickness=0.3,
+        inner_offset_mode="auto",
+    )
+    assert setup.inner_offset_report.inward_offset_detected is True
+    assert setup.inner_offset_report.selected_offset_sign == pytest.approx(
+        +1.0, abs=1e-12,
+    )

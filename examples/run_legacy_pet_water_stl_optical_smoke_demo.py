@@ -1,23 +1,27 @@
 """Legacy PET-water STL optical smoke demo.
 
-Legacy-style STL optical smoke check; not a physical PET-bottle
-validation. Reproduces the geometric / scaling / refraction
-structure of the old interactive PET-bottle experiment inside the
-current testable optics framework: load an STL, apply legacy
-anisotropic target-dimension scaling, build a generated inner
-offset water boundary, and run the four-step
-``air -> PET -> water -> PET -> air`` :func:`run_multi_mesh_trace`
-sequence into a finite detector plane on the opposite side. The
-demo runs no thermal simulation, no pattern generation, and no
-calibrated physical validation.
+Legacy STL inner-offset orientation diagnostic; not a physical
+PET-bottle validation. Reproduces the geometric / scaling /
+refraction structure of the old interactive PET-bottle experiment
+inside the current testable optics framework, plus a
+normal-direction autodetection step so the generated inner offset
+mesh sits inside the source shell regardless of whether the STL's
+vertex normals point outward or inward. Pipeline: load STL ->
+apply legacy anisotropic target-dimension scaling -> build inner
+offset water boundary with :func:`run_multi_mesh_trace` four-step
+``air -> PET -> water -> PET -> air`` sequence into a finite
+detector plane on the opposite side. The demo runs no thermal
+simulation, no pattern generation, and no calibrated physical
+validation.
 
 Scope (also enforced at runtime)
 --------------------------------
 - This reproduces the old experiment's geometric / scaling /
   refraction structure inside the current framework.
 - It uses target-dimension scaling and a generated inner offset
-  mesh.
-- It does not prove physical accuracy.
+  mesh whose direction is autodetected by default.
+- Normal-direction autodetection is a geometric robustness step.
+- It does not prove physical wall thickness accuracy.
 - It does not repair meshes.
 - It does not infer real material regions automatically.
 - It does not perform thermal simulation.
@@ -29,7 +33,8 @@ Usage::
     python examples/run_legacy_pet_water_stl_optical_smoke_demo.py \\
         --mesh data/raw/stl/pet_bottle.stl \\
         --target-height 225.6 --target-diameter 72.1 \\
-        --wall-thickness 0.3
+        --wall-thickness 0.3 \\
+        --inner-offset-mode auto
 
 The script exits 0 when every invariant holds and 1 otherwise.
 """
@@ -114,6 +119,16 @@ def _build_argparser() -> argparse.ArgumentParser:
         help=(
             "Side-incidence angle around the y-axis in degrees "
             "(default 0)."
+        ),
+    )
+    parser.add_argument(
+        "--inner-offset-mode",
+        choices=("auto", "minus_normals", "plus_normals"),
+        default="auto",
+        help=(
+            "Inner offset direction mode. Default 'auto' picks the "
+            "direction whose median radial distance is smaller; "
+            "'minus_normals' reproduces the legacy formula."
         ),
     )
     return parser
@@ -223,6 +238,10 @@ def _print_static_header() -> None:
         "PET-bottle validation."
     )
     print(
+        "Legacy STL inner-offset orientation diagnostic; not a "
+        "physical PET-bottle validation."
+    )
+    print(
         "Note: this reproduces the old experiment's "
         "geometric/scaling/refraction structure inside the current "
         "framework."
@@ -231,7 +250,13 @@ def _print_static_header() -> None:
         "Note: it uses target-dimension scaling and a generated "
         "inner offset mesh."
     )
-    print("Note: it does not prove physical accuracy.")
+    print(
+        "Note: normal-direction autodetection is a geometric "
+        "robustness step."
+    )
+    print(
+        "Note: it does not prove physical wall thickness accuracy."
+    )
     print("Note: it does not repair meshes.")
     print(
         "Note: it does not infer real material regions "
@@ -255,6 +280,7 @@ def _check_invariants(
     trace: MultiMeshTraceResult,
     detector_hits_total: int,
     surrogate: DetectorIrradianceSurrogate,
+    offset_mode: str,
 ) -> bool:
     checks: list[bool] = []
     checks.append(len(setup.step_specs) == 4)
@@ -270,6 +296,10 @@ def _check_invariants(
     checks.append(
         np.isfinite(surrogate.relative_irradiance_map).all()
     )
+    if offset_mode == "auto":
+        checks.append(
+            bool(setup.inner_offset_report.inward_offset_detected)
+        )
     return all(checks)
 
 
@@ -291,13 +321,37 @@ def main(argv: list[str] | None = None) -> int:
         target_height=float(args.target_height),
         target_diameter=float(args.target_diameter),
         wall_thickness=float(args.wall_thickness),
+        inner_offset_mode=str(args.inner_offset_mode),
     )
 
+    inner_report = setup.inner_offset_report
     print(f"Scale xyz: {tuple(float(s) for s in setup.scale_report.scale_xyz)}")
     print(f"Scaled height: {float(setup.scale_report.scaled_height):.4f}")
     print(
         f"Scaled xy extent: "
         f"{float(setup.scale_report.scaled_xy_extent):.4f}"
+    )
+    print(f"Inner offset mode: {str(inner_report.offset_mode)}")
+    print(
+        f"Selected offset sign: "
+        f"{float(inner_report.selected_offset_sign):+.0f}"
+    )
+    print(
+        f"Original radial stat: "
+        f"{float(inner_report.original_radial_stat):.6f}"
+    )
+    print(
+        f"Selected radial stat: "
+        f"{float(inner_report.selected_radial_stat):.6f}"
+    )
+    print(f"Radial delta: {float(inner_report.radial_delta):+.6f}")
+    print(
+        f"Inward offset detected: "
+        f"{bool(inner_report.inward_offset_detected)}"
+    )
+    print(
+        f"Inner mesh watertight: "
+        f"{bool(inner_report.inner_mesh_watertight)}"
     )
     print(f"Step count: {int(len(setup.step_specs))}")
 
@@ -345,6 +399,7 @@ def main(argv: list[str] | None = None) -> int:
         trace=trace,
         detector_hits_total=int(accumulation.total_hits),
         surrogate=surrogate,
+        offset_mode=str(args.inner_offset_mode),
     )
     print(f"Invariants: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1

@@ -134,6 +134,13 @@ def test_inner_offset_report_fields_valid() -> None:
     assert report.inverted is True
     assert report.report_type == "inner_offset_mesh_report"
     assert report.source_mesh_watertight is bool(mesh.is_watertight)
+    assert np.isfinite(report.original_radial_stat)
+    assert np.isfinite(report.minus_radial_stat)
+    assert np.isfinite(report.plus_radial_stat)
+    assert np.isfinite(report.selected_radial_stat)
+    assert np.isfinite(report.radial_delta)
+    assert isinstance(report.notes, tuple)
+    assert len(report.notes) >= 1
 
 
 def test_inner_offset_invert_false_keeps_original_winding() -> None:
@@ -142,6 +149,101 @@ def test_inner_offset_invert_false_keeps_original_winding() -> None:
         mesh, thickness=0.3, invert=False,
     )
     assert report.inverted is False
+
+
+def test_offset_mode_minus_normals_preserves_legacy_formula() -> None:
+    mesh = _shell()
+    inner, report = create_inner_offset_mesh_from_vertex_normals(
+        mesh, thickness=0.3, invert=False,
+        offset_mode="minus_normals",
+    )
+    expected_vertices = (
+        np.asarray(mesh.vertices, dtype=float)
+        - 0.3 * np.asarray(mesh.vertex_normals, dtype=float)
+    )
+    np.testing.assert_allclose(
+        np.asarray(inner.vertices), expected_vertices, atol=1e-12,
+    )
+    assert report.offset_mode == "minus_normals"
+    assert report.selected_offset_sign == pytest.approx(-1.0, abs=1e-12)
+
+
+def test_offset_mode_plus_normals_uses_plus_formula() -> None:
+    mesh = _shell()
+    inner, report = create_inner_offset_mesh_from_vertex_normals(
+        mesh, thickness=0.3, invert=False,
+        offset_mode="plus_normals",
+    )
+    expected_vertices = (
+        np.asarray(mesh.vertices, dtype=float)
+        + 0.3 * np.asarray(mesh.vertex_normals, dtype=float)
+    )
+    np.testing.assert_allclose(
+        np.asarray(inner.vertices), expected_vertices, atol=1e-12,
+    )
+    assert report.offset_mode == "plus_normals"
+    assert report.selected_offset_sign == pytest.approx(+1.0, abs=1e-12)
+
+
+def test_offset_mode_auto_chooses_minus_for_outward_normal_cylinder() -> None:
+    mesh = trimesh.creation.cylinder(
+        radius=30.0, height=120.0, sections=64,
+    )
+    _, report = create_inner_offset_mesh_from_vertex_normals(
+        mesh, thickness=0.3, offset_mode="auto",
+    )
+    assert report.offset_mode == "auto"
+    assert report.selected_offset_sign == pytest.approx(-1.0, abs=1e-12)
+    assert report.inward_offset_detected is True
+    assert report.selected_radial_stat < report.original_radial_stat
+
+
+def test_offset_mode_auto_chooses_plus_for_inward_normal_mesh() -> None:
+    mesh = trimesh.creation.cylinder(
+        radius=30.0, height=120.0, sections=64,
+    )
+    inverted_source = mesh.copy()
+    inverted_source.invert()
+    _, report = create_inner_offset_mesh_from_vertex_normals(
+        inverted_source, thickness=0.3, offset_mode="auto",
+    )
+    assert report.offset_mode == "auto"
+    assert report.selected_offset_sign == pytest.approx(+1.0, abs=1e-12)
+    assert report.inward_offset_detected is True
+    assert report.selected_radial_stat < report.original_radial_stat
+
+
+def test_auto_offset_radial_stats_finite_and_consistent() -> None:
+    mesh = trimesh.creation.cylinder(
+        radius=30.0, height=120.0, sections=64,
+    )
+    _, report = create_inner_offset_mesh_from_vertex_normals(
+        mesh, thickness=0.3, offset_mode="auto",
+    )
+    assert np.isfinite(report.original_radial_stat)
+    assert np.isfinite(report.minus_radial_stat)
+    assert np.isfinite(report.plus_radial_stat)
+    assert np.isfinite(report.selected_radial_stat)
+    if report.selected_offset_sign < 0.0:
+        assert report.selected_radial_stat == pytest.approx(
+            report.minus_radial_stat, abs=1e-12,
+        )
+    else:
+        assert report.selected_radial_stat == pytest.approx(
+            report.plus_radial_stat, abs=1e-12,
+        )
+    assert report.radial_delta == pytest.approx(
+        report.selected_radial_stat - report.original_radial_stat,
+        abs=1e-12,
+    )
+
+
+def test_invalid_offset_mode_raises_geometry_error() -> None:
+    mesh = _shell()
+    with pytest.raises(GeometryError, match="offset_mode"):
+        create_inner_offset_mesh_from_vertex_normals(
+            mesh, thickness=0.3, offset_mode="something_else",
+        )
 
 
 def test_target_scale_report_dataclass_returned() -> None:

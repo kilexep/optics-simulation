@@ -78,18 +78,24 @@ def create_legacy_pet_water_trace_setup(
     ior_air: float = _DEFAULT_IOR_AIR,
     ior_pet: float = _DEFAULT_IOR_PET,
     ior_water: float = _DEFAULT_IOR_WATER,
+    inner_offset_mode: str = "auto",
 ) -> LegacyPetWaterTraceSetup:
     """Build the legacy-style four-step PET-water trace setup.
 
-    Legacy-style STL optical smoke check; **not a physical
-    PET-bottle validation**. Steps:
+    Legacy STL inner-offset orientation diagnostic; **not a
+    physical PET-bottle validation**. Steps:
 
     1. Apply legacy anisotropic target-dimension scaling via
        :func:`create_target_scaled_mesh_copy` so the bounding box
        matches ``(target_diameter, target_diameter, target_height)``.
     2. Build the inner offset water boundary via
        :func:`create_inner_offset_mesh_from_vertex_normals` with
-       ``invert=True``.
+       ``invert=True`` and the caller-supplied
+       ``inner_offset_mode``. The default ``"auto"`` picks the
+       offset sign whose median radial distance is smaller, so
+       the resulting inner mesh sits inside the source shell
+       regardless of whether vertex normals point outward or
+       inward.
     3. Emit four :class:`MultiMeshTraceStepSpec` entries with
        caller-supplied refractive indices and the labels
        ``"air_to_pet_outer_shell"``,
@@ -104,7 +110,8 @@ def create_legacy_pet_water_trace_setup(
     ------
     GeometryError
         On invalid mesh, invalid target dimensions, invalid
-        ``wall_thickness``, or non-finite vertex normals.
+        ``wall_thickness``, invalid ``inner_offset_mode``, or
+        non-finite vertex normals.
     OpticsError
         On invalid refractive index values.
     """
@@ -122,6 +129,7 @@ def create_legacy_pet_water_trace_setup(
             shell_mesh,
             thickness=wall_thickness,
             invert=True,
+            offset_mode=inner_offset_mode,
         )
     )
 
