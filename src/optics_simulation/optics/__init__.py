@@ -72,6 +72,37 @@ from optics_simulation.optics.refraction import (
     refract_direction,
 )
 
+
+# Lazy attribute access for symbols whose eager import would
+# trigger a circular geometry / optics / pattern / contribution
+# import chain at package init time. The legacy patterned setup
+# transitively imports ``contribution.risk_map`` (via
+# ``pattern.gaussian``), which imports
+# ``geometry.hit_coordinates`` -- which is the very module
+# whose load causes ``optics/__init__.py`` to be loaded in the
+# first place.
+_LAZY_LEGACY_PATTERNED = {
+    "LegacyPatternedPetWaterSetup",
+    "create_legacy_patterned_pet_water_setup",
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_LEGACY_PATTERNED:
+        from optics_simulation.optics.legacy_patterned_pet_water import (
+            LegacyPatternedPetWaterSetup,
+            create_legacy_patterned_pet_water_setup,
+        )
+        return {
+            "LegacyPatternedPetWaterSetup": LegacyPatternedPetWaterSetup,
+            "create_legacy_patterned_pet_water_setup": (
+                create_legacy_patterned_pet_water_setup
+            ),
+        }[name]
+    raise AttributeError(
+        f"module 'optics_simulation.optics' has no attribute {name!r}"
+    )
+
 __all__ = [
     "DetectorAccumulationResult",
     "DetectorGrid",
@@ -82,6 +113,7 @@ __all__ = [
     "LegacyOpticalScanResult",
     "LegacyParityScanSummary",
     "LegacyParitySchedule",
+    "LegacyPatternedPetWaterSetup",
     "LegacyPetWaterTraceSetup",
     "LegacySourcePlaneConfig",
     "MultiMeshTraceResult",
@@ -101,6 +133,7 @@ __all__ = [
     "create_detector_grid",
     "create_detector_plane",
     "create_legacy_experiment_schedule",
+    "create_legacy_patterned_pet_water_setup",
     "create_legacy_pet_water_trace_setup",
     "create_oriented_parallel_ray_grid",
     "create_shell_medium_preset",

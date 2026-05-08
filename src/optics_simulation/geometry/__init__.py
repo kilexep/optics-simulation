@@ -1,4 +1,8 @@
 """Geometry package: STL/mesh I/O, quality reporting, and surface coordinates."""
+from optics_simulation.geometry.actual_stl_masks import (
+    ActualBottleBodyMaskReport,
+    create_actual_bottle_body_vertex_mask,
+)
 from optics_simulation.geometry.bottle_readiness import (
     BottleMeshReadinessReport,
     CylindricalFitReport,
@@ -45,6 +49,7 @@ from optics_simulation.geometry.hit_coordinates import (
 )
 
 __all__ = [
+    "ActualBottleBodyMaskReport",
     "BottleMeshReadinessFileReport",
     "BottleMeshReadinessReport",
     "BottleTargetScaleReport",
@@ -60,6 +65,7 @@ __all__ = [
     "compute_bottle_mesh_readiness_report",
     "compute_cylindrical_fit_report",
     "compute_target_dimension_scale",
+    "create_actual_bottle_body_vertex_mask",
     "create_inner_offset_mesh_from_vertex_normals",
     "create_mesh_quality_report",
     "create_subdivided_synthetic_bottle_body",
