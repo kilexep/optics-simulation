@@ -102,7 +102,9 @@ def test_demo_runs_against_synthetic_solid_cylinder_stl(
     assert "Candidate-only bins:" in result.stdout
     assert "new bin fraction" in result.stdout
     assert "Jaccard overlap:" in result.stdout
-    assert "Pareto non-dominated candidates" in result.stdout
+    assert (
+        "Pareto non-dominated diagnostic set" in result.stdout
+    )
     assert "Non-discriminative metrics" in result.stdout
     assert (
         "no_improving_candidate_under_current_sweep:"
@@ -111,15 +113,23 @@ def test_demo_runs_against_synthetic_solid_cylinder_stl(
     assert (
         "no_improving_candidate_in_holdout:" in result.stdout
     )
-    assert (
-        "max-temperature delta:" in result.stdout
-    )
-    assert (
-        "threshold-count delta:" in result.stdout
-    )
+    assert "holdout worst delta max temperature" in result.stdout
+    assert "holdout threshold-count delta" in result.stdout
+    assert "holdout pass ratio" in result.stdout
     assert "In-sample top by max-T delta:" in result.stdout
     assert "Holdout top by max-T delta:" in result.stdout
     assert (
         "Pass-ratio top vs worst-delta-T top" in result.stdout
+        or "non-discriminative; comparison skipped"
+        in result.stdout
+    )
+    assert "Result invariant validation" in result.stdout
+    assert (
+        "this is not manufacturing-ready validation"
+        in result.stdout
+    )
+    assert (
+        "in-sample improvement does not imply holdout "
+        "improvement" in result.stdout
     )
     assert "Invariants: PASS" in result.stdout

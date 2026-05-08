@@ -117,6 +117,7 @@ _LAZY_RING_OFFSET_SWEEP = {
     "run_actual_stl_ring_offset_sweep",
     "split_selected_vs_holdout_conditions",
     "summarize_thermal_risk_comparison_subset",
+    "validate_ring_offset_sweep_result",
 }
 
 
@@ -194,6 +195,7 @@ def __getattr__(name: str):
             run_actual_stl_ring_offset_sweep,
             split_selected_vs_holdout_conditions,
             summarize_thermal_risk_comparison_subset,
+            validate_ring_offset_sweep_result,
         )
         return {
             "RING_RADIUS_UNITS_DESCRIPTION": (
@@ -224,6 +226,9 @@ def __getattr__(name: str):
             ),
             "summarize_thermal_risk_comparison_subset": (
                 summarize_thermal_risk_comparison_subset
+            ),
+            "validate_ring_offset_sweep_result": (
+                validate_ring_offset_sweep_result
             ),
         }[name]
     raise AttributeError(
@@ -300,4 +305,5 @@ __all__ = [
     "split_selected_vs_holdout_conditions",
     "summarize_legacy_optical_scan",
     "summarize_thermal_risk_comparison_subset",
+    "validate_ring_offset_sweep_result",
 ]

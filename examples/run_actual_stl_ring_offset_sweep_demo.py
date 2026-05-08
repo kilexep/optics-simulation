@@ -181,18 +181,26 @@ def _print_static_header() -> None:
         "Note: this is a surrogate diagnostic, not a "
         "fire-prevention proof."
     )
+    print("Note: this is not manufacturing-ready validation.")
     print(
         "Note: a higher guardrail pass ratio does not prove "
         "safety."
     )
     print(
         "Note: a lower new-bin fraction is not automatically "
-        "better; it may mean the pattern failed to move the "
-        "hotspot."
+        "better if hotspot overlap remains high."
     )
     print(
-        "Note: a candidate with zero new-bin fraction may still "
-        "substantially overlap the original hotspot."
+        "Note: reducing overlap with existing hotspots may still "
+        "create new caustics."
+    )
+    print(
+        "Note: in-sample improvement does not imply holdout "
+        "improvement."
+    )
+    print(
+        "Note: if no candidate improves holdout worst-case Δmax "
+        "temperature, that is reported explicitly below."
     )
     print(
         "Note: the current negative result is limited to the "
@@ -236,7 +244,27 @@ def main(argv: list[str] | None = None) -> int:
     _print_static_header()
 
     candidates = _build_candidates()
-    print(f"Mesh path: {Path(args.mesh)}")
+    mesh_path = Path(args.mesh)
+    is_default_path = (
+        str(args.mesh) == _DEFAULT_MESH_PATH
+        or str(mesh_path) == str(Path(_DEFAULT_MESH_PATH))
+    )
+    print(f"Mesh path: {mesh_path}")
+    if is_default_path:
+        print(
+            "Local input asset: data/raw/stl/pet_bottle.stl is "
+            "an untracked local-only input. The committed test "
+            "suite does NOT depend on this file; subprocess "
+            "tests export a synthetic STL into tmp_path."
+        )
+    if not mesh_path.is_file():
+        print(
+            f"Mesh file not found: {mesh_path}. Pass an explicit "
+            "--mesh PATH to a readable .stl, or place an STL at "
+            "the default location."
+        )
+        print("Invariants: FAIL")
+        return 2
     print(f"Candidate count: {len(candidates)}")
     print(
         f"Subdivision iterations: "
@@ -244,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"Ranking basis: {str(args.ranking_basis)}")
 
-    mesh = load_mesh(Path(args.mesh))
+    mesh = load_mesh(mesh_path)
     scaled_shell, _ = create_target_scaled_mesh_copy(
         mesh,
         target_height=float(args.target_height),
@@ -496,9 +524,11 @@ def main(argv: list[str] | None = None) -> int:
             f"  Tradeoff label (holdout): {hold.dominant_label}"
         )
 
-    print("Pareto non-dominated candidates "
-          f"(basis={sweep.pareto_basis}, "
-          f"axes={list(sweep.pareto_axes)}):")
+    print(
+        "Pareto non-dominated diagnostic set "
+        f"(basis={sweep.pareto_basis}, "
+        f"axes={list(sweep.pareto_axes)}):"
+    )
     if sweep.pareto_non_dominated_names:
         for nm in sweep.pareto_non_dominated_names:
             print(f"  - {nm}")
@@ -513,25 +543,25 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print("Non-discriminative metrics: (none)")
 
-    if bool(sweep.no_improving_candidate_under_current_sweep):
+    print(
+        "no_improving_candidate_under_current_sweep: "
+        f"{bool(sweep.no_improving_candidate_under_current_sweep)}"
+    )
+    print(
+        "no_improving_candidate_in_holdout: "
+        f"{bool(sweep.no_improving_candidate_in_holdout)}"
+    )
+    # The ranking basis is holdout; "Least-bad" framing fires
+    # whenever holdout has no improving candidate.
+    if bool(sweep.no_improving_candidate_in_holdout):
         prefix = "Least-bad by"
         print(
-            "no_improving_candidate_under_current_sweep: True "
-            "(every candidate's full-grid worst delta max "
-            "temperature is strictly positive)"
+            "Holdout subset shows no improving candidate. Using "
+            "Least-bad framing; no candidate is described as "
+            "Best overall or Improving."
         )
     else:
         prefix = "Best by"
-        print(
-            "no_improving_candidate_under_current_sweep: False"
-        )
-    if bool(sweep.no_improving_candidate_in_holdout):
-        print(
-            "no_improving_candidate_in_holdout: True "
-            "(holdout subset shows no improving candidate)"
-        )
-    else:
-        print("no_improving_candidate_in_holdout: False")
 
     nm_t = sweep.best_by_metric_names.get("delta_max_temperature_k")
     val_t = sweep.best_by_metric_values.get(
@@ -543,38 +573,71 @@ def main(argv: list[str] | None = None) -> int:
     )
     nm_p = sweep.best_by_metric_names.get("pass_ratio_neg")
     val_p = sweep.best_by_metric_values.get("pass_ratio_neg")
-    print(
-        f"{prefix} max-temperature delta: {nm_t} "
-        f"(value={_format_optional_float(val_t)})"
+
+    threshold_non_disc = (
+        "delta_threshold_count" in sweep.non_discriminative_metrics
     )
-    print(
-        f"{prefix} threshold-count delta: {nm_c} "
-        f"(value={_format_optional_float(val_c)})"
+    max_temp_non_disc = (
+        "delta_max_temperature_k" in sweep.non_discriminative_metrics
     )
-    if nm_p is None:
-        print(f"{prefix} pass ratio: None")
+    pass_ratio_non_disc = (
+        "pass_ratio_neg" in sweep.non_discriminative_metrics
+    )
+
+    if max_temp_non_disc:
+        print(
+            f"{prefix} holdout worst delta max temperature: "
+            "non-discriminative (no separation across "
+            "candidates on holdout)"
+        )
+    else:
+        print(
+            f"{prefix} holdout worst delta max temperature: "
+            f"{nm_t} (value={_format_optional_float(val_t)})"
+        )
+    if threshold_non_disc:
+        print(
+            f"{prefix} holdout threshold-count delta: "
+            "non-discriminative (every candidate has the same "
+            "value on holdout)"
+        )
+    else:
+        print(
+            f"{prefix} holdout threshold-count delta: "
+            f"{nm_c} (value={_format_optional_float(val_c)})"
+        )
+    if pass_ratio_non_disc or nm_p is None:
+        print(
+            f"{prefix} holdout pass ratio: non-discriminative or "
+            "unavailable"
+        )
     else:
         # pass_ratio_neg is -pass_ratio; display as positive.
         print(
-            f"{prefix} pass ratio: {nm_p} "
+            f"{prefix} holdout pass ratio: {nm_p} "
             f"(ratio={(-float(val_p)):.4f})"
         )
     if sweep.composite_best_name is not None:
         print(
-            f"Composite tie-break (Pareto-internal hint): "
-            f"{sweep.composite_best_name} "
+            "Composite tie-break (Pareto-internal hint, NOT "
+            f"primary): {sweep.composite_best_name} "
             f"(score={float(sweep.composite_best_score):.6f})"
         )
         print(
             f"Composite ranking (top-down): "
             f"{list(sweep.composite_ranking_names)}"
         )
+        print(
+            "Note: composite score is a diagnostic convenience "
+            "score; it does not override the Pareto set or the "
+            "no_improving_candidate flags."
+        )
     else:
         print("Composite tie-break: None")
     print(
-        "Note: \"best/least-bad by ...\" reports the candidate "
-        "that minimizes the corresponding diagnostic in this "
-        "surrogate sweep, not a safety recommendation."
+        "Note: \"best/least-bad by ...\" identifies the candidate "
+        "that minimizes the corresponding axis on the holdout "
+        "subset; it is not a safety recommendation."
     )
 
     # In-sample vs holdout top candidate divergence diagnostic.
@@ -586,11 +649,17 @@ def main(argv: list[str] | None = None) -> int:
         v_in = e.in_sample_diagnostics.worst_delta_max_temperature_k
         v_out = e.holdout_diagnostics.worst_delta_max_temperature_k
         if v_in is not None:
-            if in_sample_best is None or float(v_in) < float(in_sample_best):
+            if (
+                in_sample_best is None
+                or float(v_in) < float(in_sample_best)
+            ):
                 in_sample_best = float(v_in)
                 in_sample_top = e.candidate.name
         if v_out is not None:
-            if holdout_best is None or float(v_out) < float(holdout_best):
+            if (
+                holdout_best is None
+                or float(v_out) < float(holdout_best)
+            ):
                 holdout_best = float(v_out)
                 holdout_top = e.candidate.name
     print(
@@ -603,26 +672,62 @@ def main(argv: list[str] | None = None) -> int:
     )
     if in_sample_top != holdout_top:
         print(
-            "In-sample vs holdout top diverge: rankings depend "
-            "on which condition subset is used."
+            "Leakage warning: in-sample top and holdout top "
+            "diverge. The in-sample candidate may look improving "
+            "only on the conditions used to build the risk map; "
+            "this does NOT generalize to the holdout."
         )
     else:
         print(
-            "In-sample vs holdout top agree."
+            "In-sample top matches holdout top (no leakage "
+            "divergence on the max-T axis); this still does NOT "
+            "imply generalized improvement."
+        )
+    if (
+        in_sample_best is not None
+        and holdout_best is not None
+        and float(in_sample_best) <= 0.0
+        and float(holdout_best) > 0.0
+    ):
+        print(
+            "Leakage warning: in-sample max-T delta is "
+            "non-positive but holdout max-T delta is strictly "
+            "positive. In-sample improvement does NOT imply "
+            "holdout improvement."
         )
 
     # Pass-ratio top vs worst-Δmax-T top divergence
-    pass_top = nm_p
-    delta_top = nm_t
-    if pass_top is not None and delta_top is not None and pass_top != delta_top:
+    pass_top = nm_p if not pass_ratio_non_disc else None
+    delta_top = nm_t if not max_temp_non_disc else None
+    if (
+        pass_top is not None
+        and delta_top is not None
+        and pass_top != delta_top
+    ):
         print(
             "Pass-ratio top vs worst-delta-T top diverge: "
-            f"pass_ratio_top={pass_top}, delta_max_T_top={delta_top}"
+            f"pass_ratio_top={pass_top}, "
+            f"delta_max_T_top={delta_top}"
         )
+    elif pass_top is not None and delta_top is not None:
+        print("Pass-ratio top vs worst-delta-T top agree.")
     else:
         print(
-            "Pass-ratio top vs worst-delta-T top agree."
+            "Pass-ratio top vs worst-delta-T top: at least one "
+            "axis is non-discriminative; comparison skipped."
         )
+
+    # Result-invariant validation gate.
+    from optics_simulation.optics import (
+        validate_ring_offset_sweep_result,
+    )
+    validation_problems = validate_ring_offset_sweep_result(sweep)
+    print(
+        f"Result invariant validation: "
+        f"{len(validation_problems)} problem(s)"
+    )
+    for p in validation_problems:
+        print(f"  ! {p}")
 
     checks: list[bool] = []
     checks.append(int(sweep.candidate_count) == len(candidates))
