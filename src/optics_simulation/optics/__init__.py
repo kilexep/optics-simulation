@@ -105,13 +105,18 @@ _LAZY_LEGACY_SUBDIVIDED_PATTERN = {
     "create_subdivided_risk_guided_legacy_pattern_setup",
 }
 
-_LAZY_LEGACY_RING_OFFSET_SWEEP = {
+_LAZY_RING_OFFSET_SWEEP = {
+    "ConditionSubsetDiagnostics",
+    "RING_RADIUS_UNITS_DESCRIPTION",
     "RingOffsetSweepCandidateSpec",
     "RingOffsetSweepEntry",
     "RingOffsetSweepResult",
+    "compute_holdout_diagnostics",
     "rank_ring_offset_sweep_by_composite_score",
     "rank_ring_offset_sweep_pareto_indices",
     "run_actual_stl_ring_offset_sweep",
+    "split_selected_vs_holdout_conditions",
+    "summarize_thermal_risk_comparison_subset",
 }
 
 
@@ -176,21 +181,35 @@ def __getattr__(name: str):
                 create_subdivided_risk_guided_legacy_pattern_setup
             ),
         }[name]
-    if name in _LAZY_LEGACY_RING_OFFSET_SWEEP:
-        from optics_simulation.optics.legacy_ring_offset_sweep import (
+    if name in _LAZY_RING_OFFSET_SWEEP:
+        from optics_simulation.optics.ring_offset_sweep import (
+            RING_RADIUS_UNITS_DESCRIPTION,
+            ConditionSubsetDiagnostics,
             RingOffsetSweepCandidateSpec,
             RingOffsetSweepEntry,
             RingOffsetSweepResult,
+            compute_holdout_diagnostics,
             rank_ring_offset_sweep_by_composite_score,
             rank_ring_offset_sweep_pareto_indices,
             run_actual_stl_ring_offset_sweep,
+            split_selected_vs_holdout_conditions,
+            summarize_thermal_risk_comparison_subset,
         )
         return {
+            "RING_RADIUS_UNITS_DESCRIPTION": (
+                RING_RADIUS_UNITS_DESCRIPTION
+            ),
+            "ConditionSubsetDiagnostics": (
+                ConditionSubsetDiagnostics
+            ),
             "RingOffsetSweepCandidateSpec": (
                 RingOffsetSweepCandidateSpec
             ),
             "RingOffsetSweepEntry": RingOffsetSweepEntry,
             "RingOffsetSweepResult": RingOffsetSweepResult,
+            "compute_holdout_diagnostics": (
+                compute_holdout_diagnostics
+            ),
             "rank_ring_offset_sweep_by_composite_score": (
                 rank_ring_offset_sweep_by_composite_score
             ),
@@ -200,12 +219,19 @@ def __getattr__(name: str):
             "run_actual_stl_ring_offset_sweep": (
                 run_actual_stl_ring_offset_sweep
             ),
+            "split_selected_vs_holdout_conditions": (
+                split_selected_vs_holdout_conditions
+            ),
+            "summarize_thermal_risk_comparison_subset": (
+                summarize_thermal_risk_comparison_subset
+            ),
         }[name]
     raise AttributeError(
         f"module 'optics_simulation.optics' has no attribute {name!r}"
     )
 
 __all__ = [
+    "ConditionSubsetDiagnostics",
     "DetectorAccumulationResult",
     "DetectorGrid",
     "DetectorHitResult",
@@ -225,6 +251,7 @@ __all__ = [
     "OpticsError",
     "PropagationResult",
     "RayBundle",
+    "RING_RADIUS_UNITS_DESCRIPTION",
     "RefractionResult",
     "RingOffsetSweepCandidateSpec",
     "RingOffsetSweepEntry",
@@ -240,6 +267,7 @@ __all__ = [
     "SubdividedLegacyPatternSetup",
     "accumulate_detector_hits",
     "classify_synthetic_shell_hit_surfaces",
+    "compute_holdout_diagnostics",
     "create_detector_grid",
     "create_detector_plane",
     "create_legacy_experiment_schedule",
@@ -269,5 +297,7 @@ __all__ = [
     "run_multi_step_trace",
     "run_single_interface_pipeline",
     "run_surface_classified_shell_trace",
+    "split_selected_vs_holdout_conditions",
     "summarize_legacy_optical_scan",
+    "summarize_thermal_risk_comparison_subset",
 ]

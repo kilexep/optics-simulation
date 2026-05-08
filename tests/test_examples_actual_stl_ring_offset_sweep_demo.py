@@ -80,17 +80,46 @@ def test_demo_runs_against_synthetic_solid_cylinder_stl(
         in result.stdout
     )
     assert "Candidate count:" in result.stdout
+    assert "Selection condition count:" in result.stdout
+    assert "Evaluation condition count:" in result.stdout
+    assert "Holdout condition count:" in result.stdout
     assert "Source risk active count:" in result.stdout
     assert "Candidate:" in result.stdout
     assert "Inner radius:" in result.stdout
-    assert "Worst delta max temperature:" in result.stdout
-    assert "Best delta threshold count:" in result.stdout
+    assert "expansion ratio" in result.stdout
+    assert "Moved vertices:" in result.stdout
+    assert (
+        "Full worst delta max temperature:" in result.stdout
+    )
+    assert (
+        "In-sample worst delta max temperature:" in result.stdout
+    )
+    assert (
+        "Holdout worst delta max temperature:" in result.stdout
+    )
+    assert "Hotspot overlap" in result.stdout
+    assert "Source overlap bins:" in result.stdout
     assert "Candidate-only bins:" in result.stdout
-    assert "New bin fraction:" in result.stdout
-    assert "Guardrail pass:" in result.stdout
-    assert "Pareto non-dominated candidates:" in result.stdout
-    assert "Best by max-temperature delta:" in result.stdout
-    assert "Best by threshold-count delta:" in result.stdout
-    assert "Best by pass ratio:" in result.stdout
-    assert "Best by composite score:" in result.stdout
+    assert "new bin fraction" in result.stdout
+    assert "Jaccard overlap:" in result.stdout
+    assert "Pareto non-dominated candidates" in result.stdout
+    assert "Non-discriminative metrics" in result.stdout
+    assert (
+        "no_improving_candidate_under_current_sweep:"
+        in result.stdout
+    )
+    assert (
+        "no_improving_candidate_in_holdout:" in result.stdout
+    )
+    assert (
+        "max-temperature delta:" in result.stdout
+    )
+    assert (
+        "threshold-count delta:" in result.stdout
+    )
+    assert "In-sample top by max-T delta:" in result.stdout
+    assert "Holdout top by max-T delta:" in result.stdout
+    assert (
+        "Pass-ratio top vs worst-delta-T top" in result.stdout
+    )
     assert "Invariants: PASS" in result.stdout

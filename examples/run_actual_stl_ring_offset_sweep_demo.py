@@ -2,20 +2,27 @@
 
 Actual STL ring-offset risk-guided pattern parameter sweep
 diagnostic; not a physical PET-bottle validation. Loads the
-supplied STL, builds the self-consistent subdivided baseline +
-multi-condition aggregate hotspot risk map, and then sweeps a
-small grid of ``(inner_radius_px, outer_radius_px)`` ring-offset
-candidates against the same subdivided baseline. For each
-candidate the demo runs the full risk-guided pattern pipeline
-(ring transform -> Gaussian dimple sampling -> patterned
-PET-water trace -> thermal-risk metrics) and computes the
-``compare_legacy_thermal_risk_scans`` /
-``build_pattern_induced_hotspot_diagnostic`` per-candidate
-diagnostics. Finally, candidates are ranked by Pareto
-non-dominance on
+supplied STL, builds a self-consistent subdivided baseline +
+multi-condition aggregate hotspot risk map, and sweeps an
+``(inner_radius_px, outer_radius_px)`` grid of ring-offset
+candidates. For each candidate the demo runs the full risk-guided
+pattern pipeline and computes:
+
+- selection-condition (in-sample) vs holdout vs full-grid
+  thermal-risk diagnostics,
+- baseline-vs-candidate hotspot-contribution overlap metrics
+  (shared bins, retained source fraction, candidate-only bins,
+  jaccard overlap),
+- ring transform coverage metrics
+  (``risk_support_expansion_ratio``, ``moved_vertex_fraction``).
+
+Candidates are then Pareto-filtered on the **holdout** subset's
 ``(worst_delta_max_temperature_k, best_delta_threshold_count,
--pass_ratio)`` and by a min-max-normalized composite score on the
-same axes.
+-pass_ratio)`` tuple, with non-discriminative axes auto-dropped.
+A min-max-normalized composite score is reported as a tie-break
+*hint inside the Pareto set*, not a primary ranking. A flag
+records whether any candidate strictly improved worst-case
+behavior.
 
 Old H.max raw detector-bin count is **NOT** used as a primary
 metric. Canonical reductions remain the relative irradiance
@@ -26,14 +33,14 @@ only.
 Scope (also enforced at runtime)
 --------------------------------
 - This is a surrogate diagnostic, not a fire-prevention proof.
-- A higher guardrail pass count does not prove safety.
-- A lower new-bin fraction is not automatically better, because
-  it may mean the pattern failed to move/redistribute the
-  hotspot.
-- Ring-offset can reduce overlap with existing hotspots but may
-  create new caustics.
-- Ranking is diagnostic ordering; no candidate is declared
-  manufacturing-ready.
+- A higher guardrail pass ratio does not prove safety.
+- A lower new-bin fraction is not automatically better; it may
+  mean the pattern failed to move the hotspot.
+- A candidate with zero new-bin fraction may still substantially
+  overlap the original hotspot.
+- The current negative result is limited to the tested ring
+  family and fixed pattern-shape settings; it is not a blanket
+  judgment on ring-offset patterns in general.
 
 Usage::
 
@@ -72,6 +79,7 @@ from optics_simulation.geometry import (
     load_mesh,
 )
 from optics_simulation.optics import (
+    RING_RADIUS_UNITS_DESCRIPTION,
     RingOffsetSweepCandidateSpec,
     create_legacy_experiment_schedule,
     create_legacy_pet_water_trace_setup_from_shell_mesh,
@@ -89,9 +97,6 @@ from optics_simulation.thermal import (
 _DEFAULT_MESH_PATH = "data/raw/stl/pet_bottle.stl"
 
 
-# Default (inner, outer) sweep grid. inner < outer is enforced by
-# the sweep runner; combinations where outer <= inner are simply
-# dropped here so the runner only sees valid candidates.
 _DEFAULT_INNERS: tuple[int, ...] = (1, 2, 3)
 _DEFAULT_OUTERS: tuple[int, ...] = (3, 5, 7)
 
@@ -158,6 +163,11 @@ def _build_argparser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--threshold-temp", type=float, default=373.15,
     )
+    parser.add_argument(
+        "--ranking-basis",
+        choices=("holdout", "full", "in_sample"),
+        default="holdout",
+    )
     return parser
 
 
@@ -172,7 +182,7 @@ def _print_static_header() -> None:
         "fire-prevention proof."
     )
     print(
-        "Note: a higher guardrail pass count does not prove "
+        "Note: a higher guardrail pass ratio does not prove "
         "safety."
     )
     print(
@@ -181,13 +191,14 @@ def _print_static_header() -> None:
         "hotspot."
     )
     print(
-        "Note: ring-offset can reduce overlap with existing "
-        "hotspots but may create new caustics."
+        "Note: a candidate with zero new-bin fraction may still "
+        "substantially overlap the original hotspot."
     )
     print(
-        "Note: ranking is diagnostic ordering; no candidate is "
-        "declared manufacturing-ready."
+        "Note: the current negative result is limited to the "
+        "tested ring family and fixed pattern-shape settings."
     )
+    print(f"Note: units -- {RING_RADIUS_UNITS_DESCRIPTION}")
 
 
 def _build_candidates() -> tuple[RingOffsetSweepCandidateSpec, ...]:
@@ -195,7 +206,6 @@ def _build_candidates() -> tuple[RingOffsetSweepCandidateSpec, ...]:
     for inner in _DEFAULT_INNERS:
         for outer in _DEFAULT_OUTERS:
             if int(outer) <= int(inner):
-                # Skip invalid (outer <= inner).
                 continue
             out.append(
                 RingOffsetSweepCandidateSpec(
@@ -205,6 +215,18 @@ def _build_candidates() -> tuple[RingOffsetSweepCandidateSpec, ...]:
                 )
             )
     return tuple(out)
+
+
+def _format_optional_float(value, fmt: str = "{:+.6f}") -> str:
+    if value is None:
+        return "None"
+    return fmt.format(float(value))
+
+
+def _format_optional_int(value, fmt: str = "{:+d}") -> str:
+    if value is None:
+        return "None"
+    return fmt.format(int(value))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -220,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         f"Subdivision iterations: "
         f"{int(args.subdivision_iterations)}"
     )
+    print(f"Ranking basis: {str(args.ranking_basis)}")
 
     mesh = load_mesh(Path(args.mesh))
     scaled_shell, _ = create_target_scaled_mesh_copy(
@@ -337,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
         aggregate_risk_map=multi.aggregate_risk_map,
         body_include_mask=body_mask.include_mask,
         candidates=candidates,
+        selections=selections,
         angles_degrees=schedule.angles_degrees,
         detector_distances=schedule.detector_distances,
         source_width=schedule.source_width,
@@ -367,6 +391,20 @@ def main(argv: list[str] | None = None) -> int:
         wall_thickness=float(args.wall_thickness),
         inner_offset_mode=str(args.inner_offset_mode),
         hotspot_top_percent=float(args.hotspot_top_percent),
+        ranking_basis=str(args.ranking_basis),
+    )
+
+    print(
+        f"Selection condition count: "
+        f"{int(sweep.selected_condition_count)}"
+    )
+    print(
+        f"Evaluation condition count: "
+        f"{int(sweep.evaluation_condition_count)}"
+    )
+    print(
+        f"Holdout condition count: "
+        f"{int(sweep.holdout_condition_count)}"
     )
 
     for entry in sweep.entries:
@@ -378,69 +416,213 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(
             f"  Source risk active: "
-            f"{int(entry.source_risk_active_count)}, "
-            f"ring risk active: "
-            f"{int(entry.ring_risk_active_count)}"
+            f"{int(entry.source_risk_active_count)} -> "
+            f"ring active: "
+            f"{int(entry.transformed_risk_active_count)} "
+            f"(expansion ratio "
+            f"{float(entry.risk_support_expansion_ratio):.4f})"
         )
         print(
-            f"  Moved vertices: {int(entry.moved_vertex_count)}"
+            f"  Moved vertices: "
+            f"{int(entry.moved_vertex_count)} / "
+            f"{int(entry.body_mask_vertex_count)} "
+            f"(fraction "
+            f"{float(entry.moved_vertex_fraction):.4f})"
+        )
+        # In-sample vs holdout vs full
+        full = entry.full_diagnostics
+        ins = entry.in_sample_diagnostics
+        hold = entry.holdout_diagnostics
+        print(
+            f"  Full worst delta max temperature: "
+            f"{_format_optional_float(full.worst_delta_max_temperature_k)}"
         )
         print(
-            f"  Worst delta max temperature: "
-            f"{float(entry.delta_max_temperature_k):+.6f}"
+            f"  In-sample worst delta max temperature: "
+            f"{_format_optional_float(ins.worst_delta_max_temperature_k)}"
         )
         print(
-            f"  Best delta threshold count: "
-            f"{int(entry.delta_threshold_count):+d}"
+            f"  Holdout worst delta max temperature: "
+            f"{_format_optional_float(hold.worst_delta_max_temperature_k)}"
         )
         print(
-            f"  Candidate-only bins: "
-            f"{int(entry.candidate_only_bins)}"
+            f"  Full best delta threshold count: "
+            f"{_format_optional_int(full.best_delta_threshold_count)}"
         )
         print(
-            f"  New bin fraction: "
-            f"{float(entry.new_bin_fraction):.6f}"
+            f"  Holdout best delta threshold count: "
+            f"{_format_optional_int(hold.best_delta_threshold_count)}"
         )
         print(
-            f"  Guardrail pass: "
-            f"{int(entry.guardrail_pass_count)} / "
-            f"{int(entry.total_condition_count)} "
-            f"(ratio={float(entry.pass_ratio):.4f})"
+            f"  Full pass ratio: "
+            f"{int(full.pass_count)}/{int(full.entry_count)} "
+            f"= {float(full.pass_ratio):.4f}"
         )
-        print(f"  Tradeoff label: {entry.tradeoff_label}")
+        print(
+            f"  Holdout pass ratio: "
+            f"{int(hold.pass_count)}/{int(hold.entry_count)} "
+            f"= {float(hold.pass_ratio):.4f}"
+        )
+        # Overlap on the worst-worsened entry
+        print(
+            f"  Hotspot overlap (at angle="
+            f"{float(entry.hotspot_diagnostic_angle_degrees):.4f}, "
+            f"distance="
+            f"{float(entry.hotspot_diagnostic_detector_distance):.4f}):"
+        )
+        print(
+            f"    Baseline bins: "
+            f"{int(entry.baseline_nonzero_bins)}, "
+            f"candidate bins: "
+            f"{int(entry.candidate_nonzero_bins)}"
+        )
+        print(
+            f"    Source overlap bins: "
+            f"{int(entry.source_overlap_bin_count)} "
+            f"(retained source fraction "
+            f"{float(entry.retained_source_bin_fraction):.4f})"
+        )
+        print(
+            f"    Candidate-only bins: "
+            f"{int(entry.candidate_only_bin_count)} "
+            f"(new bin fraction "
+            f"{float(entry.new_bin_fraction):.4f})"
+        )
+        print(
+            f"    Jaccard overlap: "
+            f"{float(entry.jaccard_overlap):.4f}"
+        )
+        print(
+            f"  Tradeoff label (holdout): {hold.dominant_label}"
+        )
 
-    print("Pareto non-dominated candidates:")
-    if sweep.pareto_candidate_names:
-        for nm in sweep.pareto_candidate_names:
+    print("Pareto non-dominated candidates "
+          f"(basis={sweep.pareto_basis}, "
+          f"axes={list(sweep.pareto_axes)}):")
+    if sweep.pareto_non_dominated_names:
+        for nm in sweep.pareto_non_dominated_names:
             print(f"  - {nm}")
     else:
         print("  (none)")
+    if sweep.non_discriminative_metrics:
+        print(
+            f"Non-discriminative metrics (range zero across "
+            f"candidates on basis={sweep.pareto_basis}): "
+            f"{list(sweep.non_discriminative_metrics)}"
+        )
+    else:
+        print("Non-discriminative metrics: (none)")
 
+    if bool(sweep.no_improving_candidate_under_current_sweep):
+        prefix = "Least-bad by"
+        print(
+            "no_improving_candidate_under_current_sweep: True "
+            "(every candidate's full-grid worst delta max "
+            "temperature is strictly positive)"
+        )
+    else:
+        prefix = "Best by"
+        print(
+            "no_improving_candidate_under_current_sweep: False"
+        )
+    if bool(sweep.no_improving_candidate_in_holdout):
+        print(
+            "no_improving_candidate_in_holdout: True "
+            "(holdout subset shows no improving candidate)"
+        )
+    else:
+        print("no_improving_candidate_in_holdout: False")
+
+    nm_t = sweep.best_by_metric_names.get("delta_max_temperature_k")
+    val_t = sweep.best_by_metric_values.get(
+        "delta_max_temperature_k",
+    )
+    nm_c = sweep.best_by_metric_names.get("delta_threshold_count")
+    val_c = sweep.best_by_metric_values.get(
+        "delta_threshold_count",
+    )
+    nm_p = sweep.best_by_metric_names.get("pass_ratio_neg")
+    val_p = sweep.best_by_metric_values.get("pass_ratio_neg")
     print(
-        f"Best by max-temperature delta: "
-        f"{sweep.best_by_max_temperature_delta} "
-        f"(delta={float(sweep.best_delta_max_temperature_k):+.6f})"
+        f"{prefix} max-temperature delta: {nm_t} "
+        f"(value={_format_optional_float(val_t)})"
     )
     print(
-        f"Best by threshold-count delta: "
-        f"{sweep.best_by_threshold_count_delta} "
-        f"(delta={int(sweep.best_delta_threshold_count):+d})"
+        f"{prefix} threshold-count delta: {nm_c} "
+        f"(value={_format_optional_float(val_c)})"
+    )
+    if nm_p is None:
+        print(f"{prefix} pass ratio: None")
+    else:
+        # pass_ratio_neg is -pass_ratio; display as positive.
+        print(
+            f"{prefix} pass ratio: {nm_p} "
+            f"(ratio={(-float(val_p)):.4f})"
+        )
+    if sweep.composite_best_name is not None:
+        print(
+            f"Composite tie-break (Pareto-internal hint): "
+            f"{sweep.composite_best_name} "
+            f"(score={float(sweep.composite_best_score):.6f})"
+        )
+        print(
+            f"Composite ranking (top-down): "
+            f"{list(sweep.composite_ranking_names)}"
+        )
+    else:
+        print("Composite tie-break: None")
+    print(
+        "Note: \"best/least-bad by ...\" reports the candidate "
+        "that minimizes the corresponding diagnostic in this "
+        "surrogate sweep, not a safety recommendation."
+    )
+
+    # In-sample vs holdout top candidate divergence diagnostic.
+    in_sample_top = None
+    in_sample_best = None
+    holdout_top = None
+    holdout_best = None
+    for e in sweep.entries:
+        v_in = e.in_sample_diagnostics.worst_delta_max_temperature_k
+        v_out = e.holdout_diagnostics.worst_delta_max_temperature_k
+        if v_in is not None:
+            if in_sample_best is None or float(v_in) < float(in_sample_best):
+                in_sample_best = float(v_in)
+                in_sample_top = e.candidate.name
+        if v_out is not None:
+            if holdout_best is None or float(v_out) < float(holdout_best):
+                holdout_best = float(v_out)
+                holdout_top = e.candidate.name
+    print(
+        f"In-sample top by max-T delta: {in_sample_top} "
+        f"({_format_optional_float(in_sample_best)})"
     )
     print(
-        f"Best by pass ratio: "
-        f"{sweep.best_by_pass_ratio} "
-        f"(ratio={float(sweep.best_pass_ratio):.4f})"
+        f"Holdout top by max-T delta: {holdout_top} "
+        f"({_format_optional_float(holdout_best)})"
     )
-    print(
-        f"Best by composite score: "
-        f"{sweep.best_by_composite_score} "
-        f"(score={float(sweep.best_composite_score):.6f})"
-    )
-    print(
-        "Note: \"best by ...\" reports the candidate that "
-        "minimizes the corresponding diagnostic in this surrogate "
-        "sweep, not a safety recommendation."
-    )
+    if in_sample_top != holdout_top:
+        print(
+            "In-sample vs holdout top diverge: rankings depend "
+            "on which condition subset is used."
+        )
+    else:
+        print(
+            "In-sample vs holdout top agree."
+        )
+
+    # Pass-ratio top vs worst-Δmax-T top divergence
+    pass_top = nm_p
+    delta_top = nm_t
+    if pass_top is not None and delta_top is not None and pass_top != delta_top:
+        print(
+            "Pass-ratio top vs worst-delta-T top diverge: "
+            f"pass_ratio_top={pass_top}, delta_max_T_top={delta_top}"
+        )
+    else:
+        print(
+            "Pass-ratio top vs worst-delta-T top agree."
+        )
 
     checks: list[bool] = []
     checks.append(int(sweep.candidate_count) == len(candidates))
@@ -448,9 +630,9 @@ def main(argv: list[str] | None = None) -> int:
     checks.append(int(multi.aggregate_risk_map.active_count) > 0)
     checks.append(
         all(
-            int(e.guardrail_pass_count)
-            + int(e.guardrail_fail_count)
-            == int(e.total_condition_count)
+            int(e.full_diagnostics.entry_count)
+            == int(e.in_sample_diagnostics.entry_count)
+            + int(e.holdout_diagnostics.entry_count)
             for e in sweep.entries
         )
     )
@@ -460,7 +642,6 @@ def main(argv: list[str] | None = None) -> int:
             for e in sweep.entries
         )
     )
-    checks.append(len(sweep.pareto_candidate_names) > 0)
     ok = all(checks)
     print(f"Invariants: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
