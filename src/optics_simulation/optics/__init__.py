@@ -84,6 +84,12 @@ from optics_simulation.optics.refraction import (
 _LAZY_LEGACY_PATTERNED = {
     "LegacyPatternedPetWaterSetup",
     "create_legacy_patterned_pet_water_setup",
+    "create_risk_guided_legacy_patterned_pet_water_setup",
+}
+
+_LAZY_LEGACY_DETAILED_TRACE = {
+    "LegacyDetailedTraceResult",
+    "run_legacy_pet_water_detailed_trace",
 }
 
 
@@ -92,11 +98,26 @@ def __getattr__(name: str):
         from optics_simulation.optics.legacy_patterned_pet_water import (
             LegacyPatternedPetWaterSetup,
             create_legacy_patterned_pet_water_setup,
+            create_risk_guided_legacy_patterned_pet_water_setup,
         )
         return {
             "LegacyPatternedPetWaterSetup": LegacyPatternedPetWaterSetup,
             "create_legacy_patterned_pet_water_setup": (
                 create_legacy_patterned_pet_water_setup
+            ),
+            "create_risk_guided_legacy_patterned_pet_water_setup": (
+                create_risk_guided_legacy_patterned_pet_water_setup
+            ),
+        }[name]
+    if name in _LAZY_LEGACY_DETAILED_TRACE:
+        from optics_simulation.optics.legacy_detailed_trace import (
+            LegacyDetailedTraceResult,
+            run_legacy_pet_water_detailed_trace,
+        )
+        return {
+            "LegacyDetailedTraceResult": LegacyDetailedTraceResult,
+            "run_legacy_pet_water_detailed_trace": (
+                run_legacy_pet_water_detailed_trace
             ),
         }[name]
     raise AttributeError(
@@ -109,6 +130,7 @@ __all__ = [
     "DetectorHitResult",
     "DetectorPlane",
     "IntersectionResult",
+    "LegacyDetailedTraceResult",
     "LegacyOpticalScanEntry",
     "LegacyOpticalScanResult",
     "LegacyParityScanSummary",
@@ -136,6 +158,7 @@ __all__ = [
     "create_legacy_patterned_pet_water_setup",
     "create_legacy_pet_water_trace_setup",
     "create_oriented_parallel_ray_grid",
+    "create_risk_guided_legacy_patterned_pet_water_setup",
     "create_shell_medium_preset",
     "expected_shell_surface_sequence",
     "fresnel_unpolarized",
@@ -147,6 +170,7 @@ __all__ = [
     "propagate_through_interface",
     "refract_direction",
     "run_legacy_pet_water_angle_distance_scan",
+    "run_legacy_pet_water_detailed_trace",
     "run_multi_mesh_trace",
     "run_multi_step_trace",
     "run_single_interface_pipeline",

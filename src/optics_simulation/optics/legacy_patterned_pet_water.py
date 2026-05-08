@@ -67,6 +67,7 @@ from optics_simulation.pattern.actual_stl_displacement import (
     create_actual_stl_patterned_mesh_copy,
 )
 from optics_simulation.pattern.gaussian import (
+    PatternError,
     create_gaussian_dimple_pattern,
 )
 from optics_simulation.pattern.vertex_displacement import (
@@ -235,6 +236,192 @@ def create_legacy_patterned_pet_water_setup(
         ),
     )
 
+    return LegacyPatternedPetWaterSetup(
+        original_setup=original_setup,
+        patterned_shell_mesh=patterned_shell_mesh,
+        patterned_water_mesh=patterned_water_mesh,
+        patterned_step_specs=patterned_step_specs,
+        body_mask_report=body_mask_report,
+        displacement_result=displacement_result,
+        patterned_mesh_result=patterned_mesh_result,
+        patterned_inner_offset_report=patterned_inner_offset_report,
+    )
+
+
+def _synthesize_body_mask_report_from_user_mask(
+    *,
+    scaled_shell,
+    body_include_mask: np.ndarray,
+) -> ActualBottleBodyMaskReport:
+    """Wrap a caller-supplied include mask in an ActualBottleBodyMaskReport.
+
+    Falls back to :func:`create_actual_bottle_body_vertex_mask` for
+    the non-mask metadata fields (``z_min`` / ``z_max`` /
+    ``radial_min`` / ``radial_max`` / ``radial_median`` /
+    ``radial_threshold`` / ``body_z_min`` / ``body_z_max``) so the
+    returned report is internally consistent even though the
+    caller bypassed the heuristic.
+    """
+    n = int(len(scaled_shell.vertices))
+    arr = np.asarray(body_include_mask)
+    if arr.shape != (n,):
+        raise PatternError(
+            f"body_include_mask must have shape ({n},); got {arr.shape}"
+        )
+    if arr.dtype == bool:
+        mask = arr.astype(bool, copy=True)
+    elif np.issubdtype(arr.dtype, np.number):
+        if not np.isfinite(arr).all():
+            raise PatternError(
+                "body_include_mask contains NaN or inf values"
+            )
+        mask = arr.astype(bool, copy=True)
+    else:
+        raise PatternError(
+            f"body_include_mask must be bool or numeric castable "
+            f"to bool; got dtype={arr.dtype}"
+        )
+
+    default_report = create_actual_bottle_body_vertex_mask(
+        scaled_shell,
+    )
+    notes = (
+        "User-provided body_include_mask used; z and radial "
+        "fields are defaults from "
+        "create_actual_bottle_body_vertex_mask.",
+        "Pattern displacement applied through this mask is "
+        "diagnostic, not a verified manufacturing surface.",
+    )
+    return ActualBottleBodyMaskReport(
+        include_mask=mask,
+        vertex_count=n,
+        selected_count=int(mask.sum()),
+        selected_fraction=float(mask.sum()) / float(n),
+        z_min=default_report.z_min,
+        z_max=default_report.z_max,
+        body_z_min=default_report.body_z_min,
+        body_z_max=default_report.body_z_max,
+        radial_min=default_report.radial_min,
+        radial_max=default_report.radial_max,
+        radial_median=default_report.radial_median,
+        radial_threshold=default_report.radial_threshold,
+        notes=notes,
+    )
+
+
+def create_risk_guided_legacy_patterned_pet_water_setup(
+    *,
+    original_setup: LegacyPetWaterTraceSetup,
+    risk_map,
+    body_include_mask: np.ndarray,
+    pattern_count: int = 20,
+    pattern_amplitude: float = 1.0,
+    pattern_sigma_u: float = 0.03,
+    pattern_sigma_v: float = 0.03,
+    pattern_max_depth: float = 0.05,
+    pattern_seed: int = 42,
+    active_threshold: float = 0.01,
+    wall_thickness: float = _DEFAULT_WALL_THICKNESS,
+    inner_offset_mode: str = "auto",
+    ior_air: float = _DEFAULT_IOR_AIR,
+    ior_pet: float = _DEFAULT_IOR_PET,
+    ior_water: float = _DEFAULT_IOR_WATER,
+) -> LegacyPatternedPetWaterSetup:
+    """Build a patterned PET-water setup driven by a caller-supplied risk map.
+
+    Actual STL hotspot-backtracked risk-guided pattern smoke
+    check; **not a physical PET-bottle validation**. Reuses
+    ``original_setup.shell_mesh`` as the scaled shell and consumes
+    a caller-supplied ``risk_map`` and ``body_include_mask``
+    (typically produced by
+    :func:`build_legacy_hotspot_contribution_map` and
+    :func:`create_actual_bottle_body_vertex_mask` respectively),
+    sampling Gaussian dimple centers from the risk map and
+    applying them only to the body-region vertices.
+
+    The output is the same :class:`LegacyPatternedPetWaterSetup`
+    shape as :func:`create_legacy_patterned_pet_water_setup`, so
+    the legacy scan runner can consume it through the existing
+    :class:`LegacyPetWaterTraceSetup` adapter. Vertex-displacement
+    direction is autodetected via
+    :func:`create_actual_stl_patterned_mesh_copy`.
+
+    Raises
+    ------
+    PatternError
+        On invalid inputs (mask shape mismatch, non-finite values,
+        risk-map / mesh inconsistency, or a pattern_count > 0 with
+        a zero-mass risk map).
+    GeometryError, OpticsError
+        On downstream geometry or optics validation failures.
+    """
+    if not isinstance(original_setup, LegacyPetWaterTraceSetup):
+        raise PatternError(
+            "original_setup must be a LegacyPetWaterTraceSetup; "
+            f"got {type(original_setup).__name__}"
+        )
+
+    scaled_shell = original_setup.shell_mesh
+    surface_map = create_vertex_surface_coordinates(scaled_shell)
+    body_mask_report = _synthesize_body_mask_report_from_user_mask(
+        scaled_shell=scaled_shell,
+        body_include_mask=body_include_mask,
+    )
+
+    pattern = create_gaussian_dimple_pattern(
+        risk_map,
+        count=int(pattern_count),
+        amplitude=float(pattern_amplitude),
+        sigma_u=float(pattern_sigma_u),
+        sigma_v=float(pattern_sigma_v),
+        max_depth=float(pattern_max_depth),
+        seed=int(pattern_seed),
+    )
+
+    displacement_result = compute_vertex_displacement_amounts(
+        scaled_shell, surface_map, pattern,
+        active_threshold=float(active_threshold),
+        include_mask=body_mask_report.include_mask,
+    )
+    patterned_mesh_result = create_actual_stl_patterned_mesh_copy(
+        scaled_shell, displacement_result,
+    )
+    patterned_shell_mesh = patterned_mesh_result.patterned_mesh
+
+    patterned_water_mesh, patterned_inner_offset_report = (
+        create_inner_offset_mesh_from_vertex_normals(
+            patterned_shell_mesh,
+            thickness=float(wall_thickness),
+            invert=True,
+            offset_mode=str(inner_offset_mode),
+        )
+    )
+    patterned_step_specs = (
+        MultiMeshTraceStepSpec(
+            mesh=patterned_shell_mesh,
+            eta_i=float(ior_air),
+            eta_t=float(ior_pet),
+            label="air_to_pet_outer_shell",
+        ),
+        MultiMeshTraceStepSpec(
+            mesh=patterned_water_mesh,
+            eta_i=float(ior_pet),
+            eta_t=float(ior_water),
+            label="pet_to_water_inner_surface",
+        ),
+        MultiMeshTraceStepSpec(
+            mesh=patterned_water_mesh,
+            eta_i=float(ior_water),
+            eta_t=float(ior_pet),
+            label="water_to_pet_inner_surface",
+        ),
+        MultiMeshTraceStepSpec(
+            mesh=patterned_shell_mesh,
+            eta_i=float(ior_pet),
+            eta_t=float(ior_air),
+            label="pet_to_air_outer_shell",
+        ),
+    )
     return LegacyPatternedPetWaterSetup(
         original_setup=original_setup,
         patterned_shell_mesh=patterned_shell_mesh,

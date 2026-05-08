@@ -114,3 +114,131 @@ def test_input_mesh_not_mutated() -> None:
     )
     assert np.array_equal(np.asarray(mesh.vertices), vertices_before)
     assert np.array_equal(np.asarray(mesh.faces), faces_before)
+
+
+# ---------------------------------------------------------------------------
+# Risk-guided variant
+# ---------------------------------------------------------------------------
+
+
+def _uniform_risk_map(nv: int = 32, nu: int = 64):
+    from optics_simulation.contribution.risk_map import RiskMap
+
+    risk = np.ones((nv, nu), dtype=float)
+    total = float(risk.sum())
+    return RiskMap(
+        risk_map=risk.copy(),
+        probability_map=(risk / total).astype(float, copy=True),
+        active_mask=np.ones((nv, nu), dtype=bool),
+        total_risk=total,
+        active_count=int(nv * nu),
+        epsilon=0.0,
+        threshold=None,
+    )
+
+
+def _solid_body_setup():
+    from optics_simulation.optics import (
+        create_legacy_pet_water_trace_setup,
+    )
+
+    mesh = create_subdivided_synthetic_bottle_body(
+        radius=30.0, height=120.0,
+        sections=48, height_segments=10,
+    )
+    return create_legacy_pet_water_trace_setup(
+        mesh,
+        target_height=225.6, target_diameter=72.1,
+        wall_thickness=0.3, inner_offset_mode="auto",
+    )
+
+
+def test_risk_guided_setup_returns_legacy_patterned_pet_water_setup() -> None:
+    from optics_simulation.optics import (
+        create_risk_guided_legacy_patterned_pet_water_setup,
+    )
+
+    original = _solid_body_setup()
+    risk_map_obj = _uniform_risk_map()
+    n = int(len(original.shell_mesh.vertices))
+    body_mask = np.ones(n, dtype=bool)
+    setup = create_risk_guided_legacy_patterned_pet_water_setup(
+        original_setup=original,
+        risk_map=risk_map_obj,
+        body_include_mask=body_mask,
+        pattern_count=10,
+        pattern_sigma_u=0.05, pattern_sigma_v=0.05,
+        pattern_max_depth=0.05,
+        pattern_seed=1,
+        active_threshold=0.001,
+    )
+    assert isinstance(setup, LegacyPatternedPetWaterSetup)
+    assert setup.original_setup is original
+
+
+def test_risk_guided_uses_provided_risk_map_count() -> None:
+    from optics_simulation.optics import (
+        create_risk_guided_legacy_patterned_pet_water_setup,
+    )
+
+    original = _solid_body_setup()
+    risk_map_obj = _uniform_risk_map()
+    n = int(len(original.shell_mesh.vertices))
+    body_mask = np.ones(n, dtype=bool)
+    setup = create_risk_guided_legacy_patterned_pet_water_setup(
+        original_setup=original,
+        risk_map=risk_map_obj,
+        body_include_mask=body_mask,
+        pattern_count=12,
+        pattern_sigma_u=0.05, pattern_sigma_v=0.05,
+        pattern_max_depth=0.05,
+        pattern_seed=2,
+        active_threshold=0.001,
+    )
+    # Pattern object is not directly exposed on the setup, but the
+    # displacement array's positive count proves the pattern was
+    # applied.
+    assert int(
+        setup.displacement_result.active_mask.sum()
+    ) > 0
+
+
+def test_body_include_mask_restricts_moved_vertices() -> None:
+    from optics_simulation.optics import (
+        create_risk_guided_legacy_patterned_pet_water_setup,
+    )
+
+    original = _solid_body_setup()
+    risk_map_obj = _uniform_risk_map()
+    n = int(len(original.shell_mesh.vertices))
+    # Mask out everything: pattern should not move any vertex.
+    empty_mask = np.zeros(n, dtype=bool)
+    setup = create_risk_guided_legacy_patterned_pet_water_setup(
+        original_setup=original,
+        risk_map=risk_map_obj,
+        body_include_mask=empty_mask,
+        pattern_count=20,
+        pattern_sigma_u=0.05, pattern_sigma_v=0.05,
+        pattern_max_depth=0.05,
+        pattern_seed=3,
+        active_threshold=0.001,
+    )
+    assert int(setup.patterned_mesh_result.moved_vertex_count) == 0
+
+
+def test_invalid_mask_shape_raises() -> None:
+    from optics_simulation.optics import (
+        create_risk_guided_legacy_patterned_pet_water_setup,
+    )
+    from optics_simulation.pattern import PatternError
+
+    original = _solid_body_setup()
+    risk_map_obj = _uniform_risk_map()
+    bad_mask = np.zeros(7, dtype=bool)
+    with pytest.raises(PatternError, match="body_include_mask"):
+        create_risk_guided_legacy_patterned_pet_water_setup(
+            original_setup=original,
+            risk_map=risk_map_obj,
+            body_include_mask=bad_mask,
+            pattern_count=5,
+        )
