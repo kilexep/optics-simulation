@@ -105,6 +105,15 @@ _LAZY_LEGACY_SUBDIVIDED_PATTERN = {
     "create_subdivided_risk_guided_legacy_pattern_setup",
 }
 
+_LAZY_LEGACY_RING_OFFSET_SWEEP = {
+    "RingOffsetSweepCandidateSpec",
+    "RingOffsetSweepEntry",
+    "RingOffsetSweepResult",
+    "rank_ring_offset_sweep_by_composite_score",
+    "rank_ring_offset_sweep_pareto_indices",
+    "run_actual_stl_ring_offset_sweep",
+}
+
 
 def __getattr__(name: str):
     if name in _LAZY_LEGACY_PATTERNED:
@@ -167,6 +176,31 @@ def __getattr__(name: str):
                 create_subdivided_risk_guided_legacy_pattern_setup
             ),
         }[name]
+    if name in _LAZY_LEGACY_RING_OFFSET_SWEEP:
+        from optics_simulation.optics.legacy_ring_offset_sweep import (
+            RingOffsetSweepCandidateSpec,
+            RingOffsetSweepEntry,
+            RingOffsetSweepResult,
+            rank_ring_offset_sweep_by_composite_score,
+            rank_ring_offset_sweep_pareto_indices,
+            run_actual_stl_ring_offset_sweep,
+        )
+        return {
+            "RingOffsetSweepCandidateSpec": (
+                RingOffsetSweepCandidateSpec
+            ),
+            "RingOffsetSweepEntry": RingOffsetSweepEntry,
+            "RingOffsetSweepResult": RingOffsetSweepResult,
+            "rank_ring_offset_sweep_by_composite_score": (
+                rank_ring_offset_sweep_by_composite_score
+            ),
+            "rank_ring_offset_sweep_pareto_indices": (
+                rank_ring_offset_sweep_pareto_indices
+            ),
+            "run_actual_stl_ring_offset_sweep": (
+                run_actual_stl_ring_offset_sweep
+            ),
+        }[name]
     raise AttributeError(
         f"module 'optics_simulation.optics' has no attribute {name!r}"
     )
@@ -192,6 +226,9 @@ __all__ = [
     "PropagationResult",
     "RayBundle",
     "RefractionResult",
+    "RingOffsetSweepCandidateSpec",
+    "RingOffsetSweepEntry",
+    "RingOffsetSweepResult",
     "RiskGuidedPatternCandidateSpec",
     "RiskGuidedPatternSweepEntry",
     "RiskGuidedPatternSweepResult",
@@ -221,7 +258,10 @@ __all__ = [
     "normalize_vector",
     "parallel_ray_grid",
     "propagate_through_interface",
+    "rank_ring_offset_sweep_by_composite_score",
+    "rank_ring_offset_sweep_pareto_indices",
     "refract_direction",
+    "run_actual_stl_ring_offset_sweep",
     "run_actual_stl_risk_guided_pattern_parameter_sweep",
     "run_legacy_pet_water_angle_distance_scan",
     "run_legacy_pet_water_detailed_trace",
