@@ -82,6 +82,42 @@ class LegacySourcePlaneConfig:
 
 
 @dataclass(frozen=True)
+class LegacyParitySchedule:
+    angles_degrees: tuple[float, ...]
+    detector_distances: tuple[float, ...]
+    angle_count: int
+    detector_count: int
+    detector_start: float
+    detector_spacing: float
+    detector_size: float
+    source_width: float
+    source_height: float
+    source_radius: float
+    sample_count_y: int
+    sample_count_z: int
+
+
+@dataclass(frozen=True)
+class LegacyParityScanSummary:
+    result: "LegacyOpticalScanResult"
+    schedule: LegacyParitySchedule
+    total_entries: int
+    total_detector_hits: int
+    max_detector_hits: int
+    max_detector_hits_angle: float | None
+    max_detector_hits_distance: float | None
+    max_relative_irradiance: float | None
+    max_relative_irradiance_angle: float | None
+    max_relative_irradiance_distance: float | None
+    max_c99: float | None
+    max_c99_angle: float | None
+    max_c99_distance: float | None
+    nonzero_entry_count: int
+    zero_hit_entry_count: int
+    summary_type: str = "legacy_experiment_parity_scan_summary"
+
+
+@dataclass(frozen=True)
 class LegacyOpticalScanEntry:
     angle_degrees: float
     detector_distance: float
@@ -483,4 +519,187 @@ def run_legacy_pet_water_angle_distance_scan(
         max_c99_angle=float(e_c99.angle_degrees),
         max_c99_detector_distance=float(e_c99.detector_distance),
         max_c99=float(e_c99.c99),
+    )
+
+
+def _check_positive_int(value: int, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise OpticsError(
+            f"{name} must be a positive int; got {value!r}"
+        )
+    if value <= 0:
+        raise OpticsError(
+            f"{name} must be a positive int; got {value}"
+        )
+    return int(value)
+
+
+def _check_positive_float(value: float, name: str) -> float:
+    v = float(value)
+    if not math.isfinite(v) or v <= 0.0:
+        raise OpticsError(
+            f"{name} must be a finite float > 0; got {v}"
+        )
+    return v
+
+
+def create_legacy_experiment_schedule(
+    *,
+    angle_count: int = 72,
+    angle_step_degrees: float = 5.0,
+    detector_count: int = 20,
+    detector_start: float = 100.0,
+    detector_spacing: float = 20.0,
+    detector_size: float = 400.0,
+    source_width: float = 100.0,
+    source_height: float = 250.0,
+    source_radius: float = 200.0,
+    sample_count_y: int = 21,
+    sample_count_z: int = 41,
+) -> LegacyParitySchedule:
+    """Build the legacy experiment's angle / detector-distance schedule.
+
+    Legacy experiment parity optical scan; **not a physical
+    PET-bottle validation**. Reproduces the old experiment's
+    deterministic sweep schedule:
+
+    - ``angles_degrees = (i * angle_step_degrees
+      for i in range(angle_count))``
+    - ``detector_distances = (detector_start + i * detector_spacing
+      for i in range(detector_count))``
+
+    The original interactive experiment used a random
+    ``sample_surface(sample_count=10)`` source. The current
+    framework uses a deterministic ``sample_count_y x
+    sample_count_z`` rectangular grid; ``sample_count_y`` and
+    ``sample_count_z`` are intentionally separate, configurable
+    integers and are **not** equivalent to the legacy random
+    ``sample_count``.
+
+    Raises
+    ------
+    OpticsError
+        On non-positive integer counts, non-finite or non-positive
+        spacings / dimensions.
+    """
+    ac = _check_positive_int(angle_count, "angle_count")
+    dc = _check_positive_int(detector_count, "detector_count")
+    sy = _check_positive_int(sample_count_y, "sample_count_y")
+    sz = _check_positive_int(sample_count_z, "sample_count_z")
+
+    angle_step = float(angle_step_degrees)
+    if not math.isfinite(angle_step) or angle_step <= 0.0:
+        raise OpticsError(
+            f"angle_step_degrees must be a finite float > 0; "
+            f"got {angle_step}"
+        )
+
+    ds = float(detector_start)
+    if not math.isfinite(ds) or ds <= 0.0:
+        raise OpticsError(
+            f"detector_start must be a finite float > 0; got {ds}"
+        )
+
+    dsp = float(detector_spacing)
+    if not math.isfinite(dsp) or dsp <= 0.0:
+        raise OpticsError(
+            f"detector_spacing must be a finite float > 0; got {dsp}"
+        )
+
+    dsz = _check_positive_float(detector_size, "detector_size")
+    sw = _check_positive_float(source_width, "source_width")
+    sh = _check_positive_float(source_height, "source_height")
+    sr = _check_positive_float(source_radius, "source_radius")
+
+    angles = tuple(float(i) * angle_step for i in range(ac))
+    distances = tuple(ds + float(i) * dsp for i in range(dc))
+
+    return LegacyParitySchedule(
+        angles_degrees=angles,
+        detector_distances=distances,
+        angle_count=ac,
+        detector_count=dc,
+        detector_start=ds,
+        detector_spacing=dsp,
+        detector_size=dsz,
+        source_width=sw,
+        source_height=sh,
+        source_radius=sr,
+        sample_count_y=sy,
+        sample_count_z=sz,
+    )
+
+
+def summarize_legacy_optical_scan(
+    result: LegacyOpticalScanResult,
+    schedule: LegacyParitySchedule,
+) -> LegacyParityScanSummary:
+    """Aggregate a :class:`LegacyOpticalScanResult` against its schedule.
+
+    Legacy experiment parity optical scan; **not a physical
+    PET-bottle validation**. Computes total / max detector-hits,
+    forwards the result-level relative-irradiance and C99 maxima,
+    and counts entries with zero vs. nonzero detector hits. Empty
+    ``result.entries`` is supported and produces ``None`` for
+    every ``max_*_angle`` / ``max_*_distance`` field.
+    """
+    if not isinstance(result, LegacyOpticalScanResult):
+        raise OpticsError(
+            "result must be a LegacyOpticalScanResult; got "
+            f"{type(result).__name__}"
+        )
+    if not isinstance(schedule, LegacyParitySchedule):
+        raise OpticsError(
+            "schedule must be a LegacyParitySchedule; got "
+            f"{type(schedule).__name__}"
+        )
+
+    entries = result.entries
+    total_entries = int(len(entries))
+    total_detector_hits = int(
+        sum(int(e.detector_hits) for e in entries)
+    )
+    nonzero_entry_count = int(
+        sum(1 for e in entries if int(e.detector_hits) > 0)
+    )
+    zero_hit_entry_count = total_entries - nonzero_entry_count
+
+    if total_entries > 0:
+        max_hits_idx = max(
+            range(total_entries),
+            key=lambda i: int(entries[i].detector_hits),
+        )
+        max_hits_entry = entries[max_hits_idx]
+        max_detector_hits = int(max_hits_entry.detector_hits)
+        max_detector_hits_angle: float | None = float(
+            max_hits_entry.angle_degrees,
+        )
+        max_detector_hits_distance: float | None = float(
+            max_hits_entry.detector_distance,
+        )
+    else:
+        max_detector_hits = 0
+        max_detector_hits_angle = None
+        max_detector_hits_distance = None
+
+    return LegacyParityScanSummary(
+        result=result,
+        schedule=schedule,
+        total_entries=total_entries,
+        total_detector_hits=total_detector_hits,
+        max_detector_hits=max_detector_hits,
+        max_detector_hits_angle=max_detector_hits_angle,
+        max_detector_hits_distance=max_detector_hits_distance,
+        max_relative_irradiance=result.max_relative_irradiance,
+        max_relative_irradiance_angle=(
+            result.max_relative_irradiance_angle
+        ),
+        max_relative_irradiance_distance=(
+            result.max_relative_irradiance_detector_distance
+        ),
+        max_c99=result.max_c99,
+        max_c99_angle=result.max_c99_angle,
+        max_c99_distance=result.max_c99_detector_distance,
+        nonzero_entry_count=nonzero_entry_count,
+        zero_hit_entry_count=zero_hit_entry_count,
     )

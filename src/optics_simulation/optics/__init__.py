@@ -22,9 +22,13 @@ from optics_simulation.optics.legacy_pet_water import (
 from optics_simulation.optics.legacy_scan import (
     LegacyOpticalScanEntry,
     LegacyOpticalScanResult,
+    LegacyParityScanSummary,
+    LegacyParitySchedule,
     LegacySourcePlaneConfig,
+    create_legacy_experiment_schedule,
     create_oriented_parallel_ray_grid,
     run_legacy_pet_water_angle_distance_scan,
+    summarize_legacy_optical_scan,
 )
 from optics_simulation.optics.media_presets import (
     ShellMediumPreset,
@@ -76,6 +80,8 @@ __all__ = [
     "IntersectionResult",
     "LegacyOpticalScanEntry",
     "LegacyOpticalScanResult",
+    "LegacyParityScanSummary",
+    "LegacyParitySchedule",
     "LegacyPetWaterTraceSetup",
     "LegacySourcePlaneConfig",
     "MultiMeshTraceResult",
@@ -94,6 +100,7 @@ __all__ = [
     "classify_synthetic_shell_hit_surfaces",
     "create_detector_grid",
     "create_detector_plane",
+    "create_legacy_experiment_schedule",
     "create_legacy_pet_water_trace_setup",
     "create_oriented_parallel_ray_grid",
     "create_shell_medium_preset",
@@ -111,4 +118,5 @@ __all__ = [
     "run_multi_step_trace",
     "run_single_interface_pipeline",
     "run_surface_classified_shell_trace",
+    "summarize_legacy_optical_scan",
 ]

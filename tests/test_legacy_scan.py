@@ -7,11 +7,15 @@ from optics_simulation.geometry import (
 from optics_simulation.optics import (
     LegacyOpticalScanEntry,
     LegacyOpticalScanResult,
+    LegacyParityScanSummary,
+    LegacyParitySchedule,
     OpticsError,
     RayBundle,
+    create_legacy_experiment_schedule,
     create_legacy_pet_water_trace_setup,
     create_oriented_parallel_ray_grid,
     run_legacy_pet_water_angle_distance_scan,
+    summarize_legacy_optical_scan,
 )
 
 
@@ -371,3 +375,272 @@ def test_invalid_detector_distance_raises() -> None:
             sample_count_y=4, sample_count_z=4,
             detector_size=400.0, detector_resolution=(20, 20),
         )
+
+
+# ---------------------------------------------------------------------------
+# Legacy parity schedule and summary
+# ---------------------------------------------------------------------------
+
+
+def _empty_result() -> LegacyOpticalScanResult:
+    return LegacyOpticalScanResult(
+        entries=(),
+        angle_count=0,
+        detector_count=0,
+        max_relative_irradiance_angle=None,
+        max_relative_irradiance_detector_distance=None,
+        max_relative_irradiance=None,
+        max_c99_angle=None,
+        max_c99_detector_distance=None,
+        max_c99=None,
+    )
+
+
+def test_create_legacy_experiment_schedule_returns_dataclass() -> None:
+    schedule = create_legacy_experiment_schedule()
+    assert isinstance(schedule, LegacyParitySchedule)
+
+
+def test_default_schedule_has_72_angles_and_20_distances() -> None:
+    schedule = create_legacy_experiment_schedule()
+    assert schedule.angle_count == 72
+    assert schedule.detector_count == 20
+    assert len(schedule.angles_degrees) == 72
+    assert len(schedule.detector_distances) == 20
+
+
+def test_default_schedule_first_two_angles_are_0_and_5() -> None:
+    schedule = create_legacy_experiment_schedule()
+    assert schedule.angles_degrees[0] == pytest.approx(0.0, abs=1e-12)
+    assert schedule.angles_degrees[1] == pytest.approx(5.0, abs=1e-12)
+
+
+def test_default_schedule_first_distance_100_last_distance_480() -> None:
+    schedule = create_legacy_experiment_schedule()
+    assert schedule.detector_distances[0] == pytest.approx(
+        100.0, abs=1e-12,
+    )
+    assert schedule.detector_distances[-1] == pytest.approx(
+        480.0, abs=1e-12,
+    )
+
+
+def test_invalid_angle_count_raises() -> None:
+    for bad in (0, -1, -10):
+        with pytest.raises(OpticsError, match="angle_count"):
+            create_legacy_experiment_schedule(angle_count=bad)
+
+
+def test_invalid_detector_count_raises() -> None:
+    for bad in (0, -1, -10):
+        with pytest.raises(OpticsError, match="detector_count"):
+            create_legacy_experiment_schedule(detector_count=bad)
+
+
+def test_invalid_detector_spacing_raises() -> None:
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(OpticsError, match="detector_spacing"):
+            create_legacy_experiment_schedule(detector_spacing=bad)
+
+
+def test_invalid_sample_counts_raise() -> None:
+    for bad in (0, -1):
+        with pytest.raises(OpticsError, match="sample_count_y"):
+            create_legacy_experiment_schedule(sample_count_y=bad)
+        with pytest.raises(OpticsError, match="sample_count_z"):
+            create_legacy_experiment_schedule(sample_count_z=bad)
+
+
+def test_summarize_legacy_optical_scan_returns_summary() -> None:
+    setup = _setup()
+    schedule = create_legacy_experiment_schedule(
+        angle_count=2, angle_step_degrees=15.0,
+        detector_count=2, detector_start=120.0, detector_spacing=40.0,
+        sample_count_y=4, sample_count_z=4,
+    )
+    result = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=schedule.angles_degrees,
+        detector_distances=schedule.detector_distances,
+        source_width=schedule.source_width,
+        source_height=schedule.source_height,
+        sample_count_y=schedule.sample_count_y,
+        sample_count_z=schedule.sample_count_z,
+        detector_size=schedule.detector_size,
+        detector_resolution=(20, 20),
+        source_radius=schedule.source_radius,
+    )
+    summary = summarize_legacy_optical_scan(result, schedule)
+    assert isinstance(summary, LegacyParityScanSummary)
+    assert (
+        summary.summary_type == "legacy_experiment_parity_scan_summary"
+    )
+    assert summary.result is result
+    assert summary.schedule is schedule
+
+
+def test_summary_total_entries_equals_result_entry_count() -> None:
+    setup = _setup()
+    schedule = create_legacy_experiment_schedule(
+        angle_count=2, angle_step_degrees=15.0,
+        detector_count=3, detector_start=120.0, detector_spacing=40.0,
+        sample_count_y=4, sample_count_z=4,
+    )
+    result = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=schedule.angles_degrees,
+        detector_distances=schedule.detector_distances,
+        source_width=schedule.source_width,
+        source_height=schedule.source_height,
+        sample_count_y=schedule.sample_count_y,
+        sample_count_z=schedule.sample_count_z,
+        detector_size=schedule.detector_size,
+        detector_resolution=(20, 20),
+        source_radius=schedule.source_radius,
+    )
+    summary = summarize_legacy_optical_scan(result, schedule)
+    assert summary.total_entries == len(result.entries)
+    assert summary.total_entries == 2 * 3
+
+
+def test_summary_total_detector_hits_equals_manual_sum() -> None:
+    setup = _setup()
+    schedule = create_legacy_experiment_schedule(
+        angle_count=2, angle_step_degrees=15.0,
+        detector_count=2, detector_start=120.0, detector_spacing=40.0,
+        sample_count_y=4, sample_count_z=4,
+    )
+    result = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=schedule.angles_degrees,
+        detector_distances=schedule.detector_distances,
+        source_width=schedule.source_width,
+        source_height=schedule.source_height,
+        sample_count_y=schedule.sample_count_y,
+        sample_count_z=schedule.sample_count_z,
+        detector_size=schedule.detector_size,
+        detector_resolution=(20, 20),
+        source_radius=schedule.source_radius,
+    )
+    summary = summarize_legacy_optical_scan(result, schedule)
+    expected_total = sum(
+        int(e.detector_hits) for e in result.entries
+    )
+    assert summary.total_detector_hits == expected_total
+    expected_nonzero = sum(
+        1 for e in result.entries if int(e.detector_hits) > 0
+    )
+    assert summary.nonzero_entry_count == expected_nonzero
+    assert (
+        summary.zero_hit_entry_count
+        == summary.total_entries - expected_nonzero
+    )
+
+
+def test_summary_max_detector_hits_matches_manual_argmax() -> None:
+    setup = _setup()
+    schedule = create_legacy_experiment_schedule(
+        angle_count=3, angle_step_degrees=15.0,
+        detector_count=2, detector_start=120.0, detector_spacing=40.0,
+        sample_count_y=4, sample_count_z=4,
+    )
+    result = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=schedule.angles_degrees,
+        detector_distances=schedule.detector_distances,
+        source_width=schedule.source_width,
+        source_height=schedule.source_height,
+        sample_count_y=schedule.sample_count_y,
+        sample_count_z=schedule.sample_count_z,
+        detector_size=schedule.detector_size,
+        detector_resolution=(20, 20),
+        source_radius=schedule.source_radius,
+    )
+    summary = summarize_legacy_optical_scan(result, schedule)
+    expected_idx = max(
+        range(len(result.entries)),
+        key=lambda i: int(result.entries[i].detector_hits),
+    )
+    expected_entry = result.entries[expected_idx]
+    assert summary.max_detector_hits == int(
+        expected_entry.detector_hits,
+    )
+    assert summary.max_detector_hits_angle == pytest.approx(
+        expected_entry.angle_degrees, abs=1e-12,
+    )
+    assert summary.max_detector_hits_distance == pytest.approx(
+        expected_entry.detector_distance, abs=1e-12,
+    )
+
+
+def test_empty_result_summary_works() -> None:
+    schedule = create_legacy_experiment_schedule(
+        angle_count=1, detector_count=1,
+    )
+    summary = summarize_legacy_optical_scan(_empty_result(), schedule)
+    assert summary.total_entries == 0
+    assert summary.total_detector_hits == 0
+    assert summary.nonzero_entry_count == 0
+    assert summary.zero_hit_entry_count == 0
+    assert summary.max_detector_hits == 0
+    assert summary.max_detector_hits_angle is None
+    assert summary.max_detector_hits_distance is None
+    assert summary.max_relative_irradiance is None
+    assert summary.max_c99 is None
+
+
+def test_source_radius_kwarg_changes_origins_but_not_shape() -> None:
+    setup = _setup()
+    common = dict(
+        setup=setup,
+        angles_degrees=(0.0,),
+        detector_distances=(120.0,),
+        source_width=80.0, source_height=240.0,
+        sample_count_y=4, sample_count_z=4,
+        detector_size=400.0, detector_resolution=(20, 20),
+    )
+    base = run_legacy_pet_water_angle_distance_scan(
+        source_radius=200.0, **common,
+    )
+    far = run_legacy_pet_water_angle_distance_scan(
+        source_radius=400.0, **common,
+    )
+    assert len(base.entries) == len(far.entries) == 1
+    assert base.entries[0].ray_count == far.entries[0].ray_count
+    # final_ray_count >= 0 in both cases
+    assert base.entries[0].final_ray_count >= 0
+    assert far.entries[0].final_ray_count >= 0
+
+
+def test_summary_no_file_output(tmp_path) -> None:
+    setup = _setup()
+    schedule = create_legacy_experiment_schedule(
+        angle_count=1, detector_count=1,
+        sample_count_y=4, sample_count_z=4,
+    )
+    before = sorted(tmp_path.iterdir())
+    result = run_legacy_pet_water_angle_distance_scan(
+        setup=setup,
+        angles_degrees=schedule.angles_degrees,
+        detector_distances=schedule.detector_distances,
+        source_width=schedule.source_width,
+        source_height=schedule.source_height,
+        sample_count_y=schedule.sample_count_y,
+        sample_count_z=schedule.sample_count_z,
+        detector_size=schedule.detector_size,
+        detector_resolution=(20, 20),
+        source_radius=schedule.source_radius,
+    )
+    summarize_legacy_optical_scan(result, schedule)
+    after = sorted(tmp_path.iterdir())
+    assert before == after
+
+
+def test_summarize_invalid_inputs_raise() -> None:
+    schedule = create_legacy_experiment_schedule(
+        angle_count=1, detector_count=1,
+    )
+    with pytest.raises(OpticsError, match="LegacyOpticalScanResult"):
+        summarize_legacy_optical_scan("nope", schedule)  # type: ignore[arg-type]
+    with pytest.raises(OpticsError, match="LegacyParitySchedule"):
+        summarize_legacy_optical_scan(_empty_result(), "nope")  # type: ignore[arg-type]
