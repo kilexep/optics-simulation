@@ -18,6 +18,7 @@ from optics_simulation.optics.intersection import (
 from optics_simulation.optics.legacy_pet_water import (
     LegacyPetWaterTraceSetup,
     create_legacy_pet_water_trace_setup,
+    create_legacy_pet_water_trace_setup_from_shell_mesh,
 )
 from optics_simulation.optics.legacy_scan import (
     LegacyOpticalScanEntry,
@@ -99,6 +100,11 @@ _LAZY_LEGACY_RISK_GUIDED_SWEEP = {
     "run_actual_stl_risk_guided_pattern_parameter_sweep",
 }
 
+_LAZY_LEGACY_SUBDIVIDED_PATTERN = {
+    "SubdividedLegacyPatternSetup",
+    "create_subdivided_risk_guided_legacy_pattern_setup",
+}
+
 
 def __getattr__(name: str):
     if name in _LAZY_LEGACY_PATTERNED:
@@ -148,6 +154,19 @@ def __getattr__(name: str):
                 run_actual_stl_risk_guided_pattern_parameter_sweep
             ),
         }[name]
+    if name in _LAZY_LEGACY_SUBDIVIDED_PATTERN:
+        from optics_simulation.optics.legacy_subdivided_pattern import (
+            SubdividedLegacyPatternSetup,
+            create_subdivided_risk_guided_legacy_pattern_setup,
+        )
+        return {
+            "SubdividedLegacyPatternSetup": (
+                SubdividedLegacyPatternSetup
+            ),
+            "create_subdivided_risk_guided_legacy_pattern_setup": (
+                create_subdivided_risk_guided_legacy_pattern_setup
+            ),
+        }[name]
     raise AttributeError(
         f"module 'optics_simulation.optics' has no attribute {name!r}"
     )
@@ -181,6 +200,7 @@ __all__ = [
     "ShellMediumTrackingResult",
     "ShellMediumTrackingStepSummary",
     "SingleInterfacePipelineResult",
+    "SubdividedLegacyPatternSetup",
     "accumulate_detector_hits",
     "classify_synthetic_shell_hit_surfaces",
     "create_detector_grid",
@@ -188,9 +208,11 @@ __all__ = [
     "create_legacy_experiment_schedule",
     "create_legacy_patterned_pet_water_setup",
     "create_legacy_pet_water_trace_setup",
+    "create_legacy_pet_water_trace_setup_from_shell_mesh",
     "create_oriented_parallel_ray_grid",
     "create_risk_guided_legacy_patterned_pet_water_setup",
     "create_shell_medium_preset",
+    "create_subdivided_risk_guided_legacy_pattern_setup",
     "expected_shell_surface_sequence",
     "fresnel_unpolarized",
     "intersect_detector_plane",
